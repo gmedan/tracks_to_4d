@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import einops
 
 class EquivariantAttentionLayer(nn.Module):
-    def __init__(self, input_dim, output_dim, num_heads=16):
+    def __init__(self, input_dim, output_dim, num_heads=16, hidden_layer_dim=2048):
         """
         Initializes the EquivariantAttentionLayer.
 
@@ -28,7 +28,10 @@ class EquivariantAttentionLayer(nn.Module):
         self.qkv_point = nn.Parameter(torch.rand((3, 
                                                   self.num_heads, self.head_dim, 
                                                   self.num_heads, self.head_dim))) # (3, H, M, H, M)
-
+        self.fully_connected = nn.Sequential([
+            nn.Linear(output_dim, hidden_layer_dim),
+            nn.Linear(hidden_layer_dim, output_dim)
+        ])
 
     def forward(self, x):
         """
@@ -46,24 +49,25 @@ class EquivariantAttentionLayer(nn.Module):
         N, P, D = x.shape
 
         # Step 1: Temporal Attention (Equation 2)
-        qkv = torch.einsum('wdhm,ijd->wijhm', self.qkv_temporal, x)  # Shapes: (3, N, P, H, M)
-        q, k, v = qkv
-        attention_scores = torch.einsum('ijhm,Ijhm->hiIj', q, k)  # Shape: (H, N, N, P)
+        qkv = torch.einsum('wdhm,ijd->whmij', self.qkv_temporal, x)  # Shapes: (3, H, M, N, P)
+        q, k, v = qkv # Shapes: (H, M, N, P)
+        attention_scores = torch.einsum('hmij,hmIj->hiIj', q, k)  # Shape: (H, N, N, P)
         attention_weights = F.softmax(attention_scores, dim=2)  # normlization across frames (I). Shape: (H, N, N, P)
 
-        temporal_attended = torch.einsum('hIij,Ijhm->hmij', attention_weights, v)  # Shape: (H, M, N, P)
+        temporal_attended = torch.einsum('hIij,hmIj->hmij', attention_weights, v)  # Shape: (H, M, N, P)
 
         # Step 2: Point Attention (Equation 3)
-        qkv = torch.einsum('whmgn,gnij->wijhm', self.qkv_point, temporal_attended)  # Shapes: (3, N, P, H, M)
-        q, k, v = qkv
+        qkv = torch.einsum('whmHM,HMij->whmij', self.qkv_point, temporal_attended)  # Shape: (3, H, M, N, P)
+        q, k, v = qkv # Shapes: (H, M, N, P)
 
-        attention_scores = torch.einsum('ijhm,iJhm->hijJ', q, k)  # Shape: (H, N, P, P)
+        attention_scores = torch.einsum('hmij,hmiJ->hijJ', q, k)  # Shape: (H, N, P, P)
         attention_weights = F.softmax(attention_scores, dim=-1)  # normalizes across points (J). Shape: (H, N, P, P)
 
-        point_attended = torch.einsum('hijJ,iJhm->hmij', attention_weights, v)  # Shape: (H, M, N, P)
-        point_attended = einops.rearrange(point_attended, 'h m i j -> i j (h m)')  # Shape: (N, P, D_out)
+        point_attended = torch.einsum('hijJ,hmiJ->ijhm', attention_weights, v)  # Shape: (N, P, H, M)
+        point_attended = einops.rearrange(point_attended, 'i j h m -> i j (h m)')  # Shape: (N, P, D_out)
 
-        return point_attended
+        result = self.fully_connected(point_attended)
+        return result
 
 # Example Usage
 if __name__ == "__main__":
