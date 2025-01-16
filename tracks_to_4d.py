@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from einops import reduce, rearrange
 from dataclasses import dataclass
-
+import einops
 from positional_encoding import TemporalPositionalEncoding
 from equivariant_attention import EquivariantAttentionLayer
 
@@ -28,7 +28,8 @@ class TracksTo4DOutputs:
         assert self.bases.dim() == 3, "Bases must have shape (P, K, 3)"
         
         # Compute points using einsum
-        points = self.bases[:, 0:1, :] + torch.einsum('nk,pkm->npm', self.coefficients, self.bases[:, 1:, :])
+        points = self.bases[:, 0:1, :] + torch.einsum('nk,pkl->pnl', self.coefficients, self.bases[:, 1:, :])
+        points = einops.rearrange(points, 'p n l -> n p l')
         return points
 
 class TracksTo4D(nn.Module):
