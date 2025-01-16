@@ -28,10 +28,10 @@ class EquivariantAttentionLayer(nn.Module):
         self.qkv_point = nn.Parameter(torch.rand((3, 
                                                   self.num_heads, self.head_dim, 
                                                   self.num_heads, self.head_dim))) # (3, H, M, H, M)
-        self.fully_connected = nn.Sequential([
+        self.fully_connected = nn.Sequential(
             nn.Linear(output_dim, hidden_layer_dim),
             nn.Linear(hidden_layer_dim, output_dim)
-        ])
+        )
 
     def forward(self, x):
         """

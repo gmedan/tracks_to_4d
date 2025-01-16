@@ -3,8 +3,8 @@ import torch.nn as nn
 from einops import reduce, rearrange
 from dataclasses import dataclass
 
-from positional_encoding import PositionalEncoding2D
-from .equivariant_attention import EquivariantAttentionLayer
+from positional_encoding import TemporalPositionalEncoding
+from equivariant_attention import EquivariantAttentionLayer
 
 @dataclass
 class TracksTo4DOutputs:
@@ -36,14 +36,16 @@ class TracksTo4D(nn.Module):
         self.num_layers = num_layers
         
         # Positional encoding for input tensor (outputs same shape as input)
-        self.positional_encoding = PositionalEncoding2D()
+        self.positional_encoding = TemporalPositionalEncoding()
         
         # Linear layer to project positional encoding to d_model
         self.input_projection = nn.Linear(3, d_model)
         
         # Attention layers
         self.attention_layers = nn.ModuleList([
-            EquivariantAttentionLayer(input_dim=d_model, output_dim=d_model, num_heads=num_bases) 
+            EquivariantAttentionLayer(input_dim=d_model, 
+                                      output_dim=d_model, 
+                                      num_heads=num_heads) 
             for _ in range(num_layers)
         ])
         

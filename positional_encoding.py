@@ -1,25 +1,46 @@
 import torch
 import torch.nn as nn
-import einops
 
-class PositionalEncoding2D(nn.Module):
+class TemporalPositionalEncoding(nn.Module):
     """
-    Positional encoding for 2D coordinates, extended for 3D input (x, y, o).
+    Temporal positional encoding for frame indices.
+    Encodes the temporal position (frame index) using sinusoidal functions.
     """
-    def __init__(self, dim: int):
-        super(PositionalEncoding2D, self).__init__()
-        self.dim = dim
+    def __init__(self, d_model: int = 2, max_len: int = 5000):
+        """
+        Args:
+            d_model (int): Dimensionality of the model (feature space).
+            max_len (int): Maximum length of the sequence (number of frames).
+        """
+        super(TemporalPositionalEncoding, self).__init__()
+        self.d_model = d_model
+        
+        # Precompute positional encodings
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)  # Shape: (max_len, 1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-torch.log(torch.tensor(10000.0)) / d_model))
+        
+        # Compute sinusoidal encodings
+        pe = torch.zeros(max_len, d_model)
+        pe[:, 0::2] = torch.sin(position * div_term)  # Even indices
+        pe[:, 1::2] = torch.cos(position * div_term)  # Odd indices
+        self.register_buffer('pe', pe)  # Register as a non-learnable parameter
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # Assume x is of shape (N, P, 3), where the last dimension is (x, y, o)
+        """
+        Add positional encoding to the input tensor.
+        
+        Args:
+            x (torch.Tensor): Input tensor of shape (N, P, d_model).
+        
+        Returns:
+            torch.Tensor: Input tensor with positional encoding added, same shape as input.
+        """
         N, P, D = x.shape
-        assert D == 3, "Input tensor must have 3 dimensions (x, y, o)"
-        
-        # Create positional encodings
-        pe = torch.zeros(N, P, self.dim, device=x.device)
-        div_term = torch.exp(torch.arange(0, self.dim, 2, device=x.device) * -(torch.log(torch.tensor(10000.0)) / self.dim))
-        
-        pe[:, :, 0::2] = torch.sin(x[:, :, 0:1] * div_term)  # Apply sin to even indices
-        pe[:, :, 1::2] = torch.cos(x[:, :, 0:1] * div_term)  # Apply cos to odd indices
-        pe[:, :, 2] = x[:, :, 2]
-        return pe
+        pos_encoding = self.pe[:N, :].unsqueeze(1)  # Shape: (N, 1, d_model)
+        if D == self.d_model + 1:
+            pos_encoding = torch.concat([pos_encoding, torch.zeros_like(pos_encoding[...,0:1])], dim=-1)
+        elif D == self.d_model:\
+            pass
+        else:
+            raise ValueError(f'expected last dim of x to be {self.d_model} or {self.d_model+1}')
+        return x + pos_encoding
