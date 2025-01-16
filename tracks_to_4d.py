@@ -121,10 +121,10 @@ class TracksTo4D(nn.Module):
         
         # Apply 1D convolution for camera poses and coefficients
         camera_poses = rearrange(
-            self.conv_camera_poses(frame_features), 'c n -> n c'
+            self.conv_camera_poses(frame_features), 's n -> n s'
         )  # (6, N) -> (N, 6)
         coefficients = rearrange(
-            self.conv_coefficients(frame_features), 'c n -> n c'
+            self.conv_coefficients(frame_features), 'k n -> n k'
         )  # (K-1, N) -> (N, K-1)
         
         return TracksTo4DOutputs(
