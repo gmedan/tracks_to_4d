@@ -16,6 +16,21 @@ class TracksTo4DOutputs:
     camera_poses: torch.Tensor  # Shape: (N, 6)
     coefficients: torch.Tensor  # Shape: (N, K-1)
 
+    def calculate_points(self) -> torch.Tensor:
+        """
+        Calculate the tensor of 3D points from bases and coefficients.
+
+        Returns:
+            torch.Tensor: Tensor of points with shape (N, P, 3).
+        """
+        # Ensure the coefficients have the correct dimensions for broadcasting
+        assert self.coefficients.dim() == 2, "Coefficients must have shape (N, K-1)"
+        assert self.bases.dim() == 3, "Bases must have shape (P, K, 3)"
+        
+        # Compute points using einsum
+        points = self.bases[:, 0:1, :] + torch.einsum('nk,pkm->npm', self.coefficients, self.bases[:, 1:, :])
+        return points
+
 class TracksTo4D(nn.Module):
     """
     High-level implementation of the TRACKSTO4D pipeline with adjustments for aggregation.
