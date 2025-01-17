@@ -29,12 +29,13 @@ def test_tracks_to_4d_output_shapes(model):
     assert outputs.coefficients.shape == (N, num_bases-1)
 
     pts3d = outputs.calculate_points()
-    assert pts3d.shape == (N,P,3)
+    assert pts3d.shape == (N, P, 3)
 
     pts2d = outputs.reproject_points(points_3d=pts3d)
     assert pts2d.shape == (N, P, 2)
 
-    err = outputs.reprojection_error(pts2d, utils.pad_val_after(x, val=1.0))
+    err = outputs.reprojection_error(point2d_predicted=pts2d, 
+                                     point2d_gt_with_visibilty=utils.pad_val_after(x, val=1.0))
     assert err.shape == (N, P, 2)
 
 if __name__ == "__main__":
