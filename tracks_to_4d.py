@@ -58,6 +58,12 @@ class TracksTo4DOutputs:
         )
 
         return reprojected
+    
+    def reprojection_error(self, 
+                           point2d_predicted: torch.Tensor, 
+                           point2d_gt_with_visibilty: torch.Tensor):
+        
+        return point2d_predicted - point2d_gt_with_visibilty[..., :2] * point2d_gt_with_visibilty[..., 2:]
 
 
 class TracksTo4D(nn.Module):

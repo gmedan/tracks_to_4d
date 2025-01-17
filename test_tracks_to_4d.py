@@ -1,6 +1,7 @@
 import pytest
 import torch
 from tracks_to_4d import TracksTo4D, TracksTo4DOutputs
+import utils
 
 @pytest.fixture
 def model():
@@ -32,6 +33,9 @@ def test_tracks_to_4d_output_shapes(model):
 
     pts2d = outputs.reproject_points(points_3d=pts3d)
     assert pts2d.shape == (N, P, 2)
+
+    err = outputs.reprojection_error(pts2d, utils.pad_val_after(x, val=1.0))
+    assert err.shape == (N, P, 2)
 
 if __name__ == "__main__":
     pytest.main()
