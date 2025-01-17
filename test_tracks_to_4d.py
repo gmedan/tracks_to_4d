@@ -3,10 +3,6 @@ import torch
 from tracks_to_4d import TracksTo4D, TracksTo4DOutputs
 import utils
 
-@pytest.fixture
-def model():
-    return TracksTo4D(num_bases=12, d_model=256, num_heads=16, num_layers=3, dropout=0.1, kernel_size=31)
-
 def test_tracks_to_4d_output_shapes(model):
     N, P = 8, 100  # Number of frames and points
     x = torch.randn(N, P, 3)  # Random input tensor
@@ -17,7 +13,6 @@ def test_tracks_to_4d_output_shapes(model):
                        d_model=256, 
                        num_heads=16, 
                        num_layers=3, 
-                       dropout=0.1, 
                        kernel_size=31)
 
     outputs = model(x)

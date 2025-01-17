@@ -16,10 +16,9 @@ class TracksTo4D(nn.Module):
         d_model (int): Dimensionality of the intermediate feature space.
         num_heads (int): Number of attention heads.
         num_layers (int): Number of alternating attention layers.
-        dropout (float): Dropout rate.
         kernel_size (int): Kernel size for temporal convolution.
     """
-    def __init__(self, num_bases=12, d_model=256, num_heads=16, num_layers=3, dropout=0.1, kernel_size=31):
+    def __init__(self, num_bases=12, d_model=256, num_heads=16, num_layers=3, kernel_size=31):
         super(TracksTo4D, self).__init__()
         
         self.d_model = d_model
