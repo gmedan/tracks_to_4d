@@ -27,8 +27,11 @@ def test_tracks_to_4d_output_shapes(model):
     assert outputs.camera_poses.shape == (N, 6)
     assert outputs.coefficients.shape == (N, num_bases-1)
 
-    pts = outputs.calculate_points()
-    assert pts.shape == (N,P,3)
+    pts3d = outputs.calculate_points()
+    assert pts3d.shape == (N,P,3)
+
+    pts2d = outputs.reproject_points(points_3d=pts3d)
+    assert pts2d.shape == (N, P, 2)
 
 if __name__ == "__main__":
     pytest.main()
