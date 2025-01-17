@@ -61,4 +61,4 @@ class TracksTo4DOutputs:
                             point2d_predicted: torch.Tensor, 
                             point2d_measured_with_visibility: torch.Tensor):
         
-        return point2d_predicted - point2d_measured_with_visibility[..., :2] * point2d_measured_with_visibility[..., 2:]
+        return point2d_predicted - point2d_measured_with_visibility[..., :2]

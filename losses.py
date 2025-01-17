@@ -34,8 +34,9 @@ class TracksTo4DCosts:
 
 def calculate_costs(predictions: TracksTo4DOutputs, 
                     point2d_measured_with_visibility: torch.Tensor) -> TracksTo4DCosts:
-    visibile = einops.rearrange(point2d_measured_with_visibility[...,-1], 'n p -> n p 1')
-    visible_count = visibile.sum()
+    visible = einops.rearrange(point2d_measured_with_visibility[...,-1], 'n p -> n p 1')
+    visible_or_nan = visible/visible
+    visible_count = visible.sum()
 
     pts3d = predictions.calculate_points() # (N, P, 3)
     pts3d_in_cams = predictions.points_3d_in_cameras_coords(points_3d=pts3d) # (N, P, 3)
@@ -45,17 +46,19 @@ def calculate_costs(predictions: TracksTo4DOutputs,
     reprojection_errors = predictions.reprojection_errors(
         point2d_predicted=pts2d,
         point2d_measured_with_visibility=point2d_measured_with_visibility) # (N, P, 2)
+    reprojection_errors = reprojection_errors * visible
     reprojection_loss = ((reprojection_errors**2).sum() / visible_count)**.5 
     
     # Eq. 8
     gamma = einops.rearrange(predictions.gamma, 'p -> 1 p 1')
     gamma_inverse = gamma ** -1
-    static_cost = torch.log(gamma + gamma**-1 * reprojection_errors**2) * visibile
+    static_cost = torch.log(gamma + gamma**-1 * reprojection_errors**2) * visible
     static_loss = (static_cost.sum() / visible_count)**.5 
 
+    # Eq. 9
     in_front_cost = -torch.min(torch.tensor(0.0, device=pts3d_in_cams.device), 
                                pts3d_in_cams[..., -1:])
-    in_front_loss = (in_front_cost * visibile).sum()
+    in_front_loss = (in_front_cost * visible).sum() / visible_count
  
     # Eq. 10
     gamma_inverse = gamma_inverse.detach() # detach gamma (1, P, 1)
@@ -63,9 +66,9 @@ def calculate_costs(predictions: TracksTo4DOutputs,
     sparse_loss = sparse_cost.mean()
 
     return TracksTo4DCosts(
-        reprojection_errors=reprojection_errors,
-        static_cost=static_cost,
-        in_front_cost=in_front_cost,
+        reprojection_errors=reprojection_errors*visible_or_nan,
+        static_cost=static_cost*visible_or_nan,
+        in_front_cost=in_front_cost*visible_or_nan,
         sparse_cost=sparse_cost,
 
         reprojection_loss=reprojection_loss,
