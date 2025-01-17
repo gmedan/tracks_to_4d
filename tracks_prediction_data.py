@@ -44,19 +44,21 @@ class TracksTo4DOutputs:
 
     @property
     def camera_from_world(self):
-        return pp.se3(self.camera_poses).Exp()
+        return pp.se3(rearrange(self.camera_poses, 'n s -> n 1 s')).Exp()
     
-    def reproject_points(self, points_3d: torch.Tensor):
+    def points_3d_in_cameras_coords(self, points_3d: torch.Tensor):
+        return self.camera_from_world.Act(points_3d)
+    
+    def reproject_points(self, points_3d_in_cameras_coords: torch.Tensor):
         reprojected = pp.point2pixel(
-            points=points_3d,
-            intrinsics=torch.eye(3, dtype=points_3d.dtype, device=points_3d.device),
-            extrinsics=self.camera_from_world
+            points=points_3d_in_cameras_coords,
+            intrinsics=torch.eye(3, dtype=points_3d_in_cameras_coords.dtype, device=points_3d_in_cameras_coords.device),
         )
 
         return reprojected
     
-    def reprojection_error(self, 
-                           point2d_predicted: torch.Tensor, 
-                           point2d_gt_with_visibilty: torch.Tensor):
+    def reprojection_errors(self, 
+                            point2d_predicted: torch.Tensor, 
+                            point2d_measured_with_visibility: torch.Tensor):
         
-        return point2d_predicted - point2d_gt_with_visibilty[..., :2] * point2d_gt_with_visibilty[..., 2:]
+        return point2d_predicted - point2d_measured_with_visibility[..., :2] * point2d_measured_with_visibility[..., 2:]
