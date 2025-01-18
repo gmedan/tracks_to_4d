@@ -43,5 +43,6 @@ def test_tracks_to_4d_output_shapes():
     loss_weights = TracksTo4DLossWeights()
     assert costs.calc_loss(loss_weights=loss_weights).shape == torch.Size()
 
+
 if __name__ == "__main__":
     pytest.main()
