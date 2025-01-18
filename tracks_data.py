@@ -30,10 +30,10 @@ if __name__ == "__main__":
                                            torch.sin(0.05*times)*radius,
                                            3*radius+0.01*times**2], 
                                            dim=-1), 'n t -> n 1 t')
-    points_3d_dynamic = pp.randn_so3(1, P).tensor()
-    points_3d_dynamic = center + points_3d_dynamic * points_3d_dynamic.norm(dim=-1, keepdim=True)**-1 * radius * 3
+    pts_3d_dynamic = pp.randn_so3(1, P).tensor()
+    pts_3d_dynamic = center + pts_3d_dynamic * pts_3d_dynamic.norm(dim=-1, keepdim=True)**-1 * radius * 3
 
-    points_3d_static = torch.stack(
+    pts_3d_static = torch.stack(
         torch.meshgrid(torch.linspace(-radius*5, radius*5, int(P**.5)),
                        torch.linspace(-radius*5, radius*5, int(P**.5)),
                        torch.tensor(0.), 
@@ -41,7 +41,7 @@ if __name__ == "__main__":
         ),
         dim=-1
     )
-    points_3d_static = einops.rearrange(points_3d_static, 'x y z d -> (x y z) d')
+    pts_3d_static = einops.rearrange(pts_3d_static, 'x y z d -> 1 (x y z) d').repeat(len(times), 1, 1)
 
     cam_center = einops.rearrange(torch.stack([torch.cos(-0.02*times)*radius*12,
                                                torch.sin(0.02*times)*radius*12,
@@ -59,11 +59,19 @@ if __name__ == "__main__":
         initial=world_R_cam))))
     world_from_cam = pypose_utils.create_SE3_from_parts(translation=cam_center,
                                                         rotation=world_R_cam)
-    
-    pts2d_dynamic = pp.point2pixel(points_3d_dynamic,
-                                   intrinsics=K,
-                                   extrinsics=world_from_cam.Inv())
-    
+    pts_3d = torch.cat([pts_3d_dynamic,
+                        pts_3d_static], dim=1)
+    pts_2d = pp.point2pixel(pts_3d,
+                            intrinsics=K,
+                            extrinsics=world_from_cam.Inv())
+
+    results = ClipWithTracks(
+        points_2d=pts_2d,
+        points_3d=pts_3d,
+        intrinsic_mat=K,
+        world_from_cam=world_from_cam,
+        images = torch.empty(N,3,w,h)
+    )
 
     parser = argparse.ArgumentParser(description='Show DRR')
     rr.script_add_args(parser)
@@ -76,7 +84,7 @@ if __name__ == "__main__":
             time_ranges=[
                 rrb.VisibleTimeRange(
                     timeline="time",
-                    start=rrb.TimeRangeBoundary.cursor_relative(seq=-N),
+                    start=rrb.TimeRangeBoundary.cursor_relative(seq=0),
                     end=rrb.TimeRangeBoundary.cursor_relative(),
                 )
             ],
@@ -89,31 +97,27 @@ if __name__ == "__main__":
     )
     rr.log('world', rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)  # Set an up-axis
 
-    rr.log('world/static',
-           rr.Points3D(positions=points_3d_static, colors=(128, 128, 128)),
-           timeless=True)
-
-    rr.send_columns('world/dynamic', 
+    rr.send_columns('world/pts', 
                     times=[rr.TimeSequenceColumn("time", times)],
                     components=[
                         rr.Points3D.indicator(),
-                        rr.components.Position3DBatch(einops.rearrange(points_3d_dynamic, 
-                                                                       'n p d -> (n p) d')).partition([P]*N),
+                        rr.components.Position3DBatch(einops.rearrange(results.points_3d, 
+                                                                       'n p d -> (n p) d')).partition([results.points_3d.shape[1]] * results.points_3d.shape[0]),
                         rr.components.ColorBatch([(255,255,255)]*N),
                     ],
     )
 
-    rr.send_columns('world/cam/axes/pinhole/pts_dynamic', 
+    rr.send_columns('world/cam/axes/pinhole/pts', 
                     times=[rr.TimeSequenceColumn("time", times)],
                     components=[
                         rr.Points2D.indicator(),
-                        rr.components.Position2DBatch(einops.rearrange(pts2d_dynamic, 
-                                                                       'n p d -> (n p) d')).partition([P]*N),
-                        rr.components.ColorBatch([(255,128,255)]*N),
+                        rr.components.Position2DBatch(einops.rearrange(results.points_2d, 
+                                                                       'n p d -> (n p) d')).partition([results.points_2d.shape[1]] * results.points_2d.shape[0]),
+                        rr.components.ColorBatch([(255,255,255)]*N),
                     ],
     )
-
-        
+    
+    
     rr.log(
         "world/cam",
         [
@@ -132,26 +136,19 @@ if __name__ == "__main__":
     )
     rr.log(
         "world/cam/axes/pinhole",
-        rr.Pinhole(image_from_camera=K,
-                   width=w, height=h,
+        rr.Pinhole(image_from_camera=results.intrinsic_mat,
+                   height=results.images.shape[-2], width=results.images.shape[-1],
                    camera_xyz=rr.ViewCoordinates.RDF, 
-                   image_plane_distance=radius),
+                   image_plane_distance=10.),
         timeless=True,
     )
 
     for i, t in enumerate(times):
-        pts2d_static = pp.point2pixel(points_3d_static,
-                                       intrinsics=K,
-                                       extrinsics=world_from_cam[i].Inv()).squeeze()
-        
         rr.set_time_sequence('time', t.int())
         rr.log('world/cam',
                rr.Transform3D(mat3x3=world_from_cam[i].rotation().matrix(),
                               translation=world_from_cam[i].translation(),
                               from_parent=False)
                )
-        rr.log('world/cam/axes/pinhole/pts_static',
-               rr.Points2D(pts2d_static, colors=(0,255,255), radii=-5.),)
-
 
     rr.script_teardown(args=args)
