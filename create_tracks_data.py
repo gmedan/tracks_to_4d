@@ -65,14 +65,18 @@ if __name__ == "__main__":
     world_from_cam = create_camera_trajectory(N, radius, times)
 
     pts_3d = torch.cat([pts_3d_dynamic, pts_3d_static], dim=1)
+    static_mask = torch.ones(pts_3d.shape[1], dtype=torch.bool)
+    static_mask[-pts_3d_static.shape[1]:] = False
     pts_2d = pp.point2pixel(pts_3d, intrinsics=K, extrinsics=world_from_cam.Inv())
+
 
     results = ClipWithTracks(
         points_2d=pts_2d,
         points_3d=pts_3d,
         intrinsic_mat=K,
         world_from_cam=world_from_cam,
-        images = torch.empty(N,3,w,h)
+        images = torch.empty(N,3,w,h),
+        static_mask=static_mask
     )
 
     parser = argparse.ArgumentParser(description='Show DRR')
@@ -99,13 +103,21 @@ if __name__ == "__main__":
     )
     rr.log('world', rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)  # Set an up-axis
 
+    n_frames, n_pts = results.points_3d.shape[0], results.points_3d.shape[1]
+
+    colors = torch.tensor([[255,0,255],\
+                           [255,255,0]])[results.static_mask.int()]
+    colors = einops.rearrange(colors, 'p c -> 1 p c').repeat(n_frames, 1, 1)
+    
     rr.send_columns('world/pts', 
                     times=[rr.TimeSequenceColumn("time", times)],
                     components=[
                         rr.Points3D.indicator(),
                         rr.components.Position3DBatch(einops.rearrange(results.points_3d, 
-                                                                       'n p d -> (n p) d')).partition([results.points_3d.shape[1]] * results.points_3d.shape[0]),
-                        rr.components.ColorBatch([(255,255,255)]*N),
+                                                                       'n p d -> (n p) d')).partition([n_pts] * n_frames),
+                        rr.components.ColorBatch(einops.rearrange(colors, 
+                                                                  'n p d -> (n p) d')).partition([n_pts] * n_frames),
+                        rr.components.RadiusBatch(data=[-3]*n_pts*n_frames).partition([n_pts] * n_frames)
                     ],
     )
 
@@ -114,8 +126,10 @@ if __name__ == "__main__":
                     components=[
                         rr.Points2D.indicator(),
                         rr.components.Position2DBatch(einops.rearrange(results.points_2d, 
-                                                                       'n p d -> (n p) d')).partition([results.points_2d.shape[1]] * results.points_2d.shape[0]),
-                        rr.components.ColorBatch([(255,255,255)]*N),
+                                                                       'n p d -> (n p) d')).partition([n_pts] * n_frames),
+                        rr.components.ColorBatch(einops.rearrange(colors, 
+                                                                  'n p d -> (n p) d')).partition([n_pts] * n_frames),                    
+                        rr.components.RadiusBatch(data=[-1]*n_pts*n_frames).partition([n_pts] * n_frames)                                                                  
                     ],
     )
     
