@@ -53,7 +53,7 @@ def create_camera_trajectory(N: int, radius: float, times: torch.Tensor) -> torc
                                                         rotation=world_R_cam)
     return world_from_cam
 
-def log_to_rerun(results: ClipWithTracks, times: torch.Tensor) -> None:
+def log_to_rerun(results: ClipWithTracks) -> None:
     rr.log('world', rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)  # Set an up-axis
 
     n_frames, n_pts = results.points_3d.shape[0], results.points_3d.shape[1]
@@ -62,7 +62,7 @@ def log_to_rerun(results: ClipWithTracks, times: torch.Tensor) -> None:
     colors = einops.rearrange(colors, 'p c -> 1 p c').repeat(n_frames, 1, 1)
     
     rr.send_columns('world/pts', 
-                    times=[rr.TimeSequenceColumn("time", times)],
+                    times=[rr.TimeSequenceColumn("time", results.times)],
                     components=[
                         rr.Points3D.indicator(),
                         rr.components.Position3DBatch(einops.rearrange(results.points_3d, 
@@ -74,7 +74,7 @@ def log_to_rerun(results: ClipWithTracks, times: torch.Tensor) -> None:
     )
 
     rr.send_columns('world/cam/axes/pinhole/pts', 
-                    times=[rr.TimeSequenceColumn("time", times)],
+                    times=[rr.TimeSequenceColumn("time", results.times)],
                     components=[
                         rr.Points2D.indicator(),
                         rr.components.Position2DBatch(einops.rearrange(results.points_2d, 
@@ -104,13 +104,13 @@ def log_to_rerun(results: ClipWithTracks, times: torch.Tensor) -> None:
     rr.log(
         "world/cam/axes/pinhole",
         rr.Pinhole(image_from_camera=results.intrinsic_mat,
-                   height=results.images.shape[-2], width=results.images.shape[-1],
+                   height=results.height, width=results.width,
                    camera_xyz=rr.ViewCoordinates.RDF, 
                    image_plane_distance=10.),
         timeless=True,
     )
 
-    for i, t in enumerate(times):
+    for i, t in enumerate(results.times):
         rr.set_time_sequence('time', t.int())
         rr.log('world/cam',
                rr.Transform3D(mat3x3=results.world_from_cam[i].rotation().matrix(),
@@ -120,7 +120,7 @@ def log_to_rerun(results: ClipWithTracks, times: torch.Tensor) -> None:
 
 if __name__ == "__main__":
     N, P = 45, 40
-    w, h, f = 100, 100, 75
+    w, h, f = 150, 100, 75
     K = torch.tensor([[f,0,w*.5-.5],[0,f,h*.5-.5],[0,0,1]])
     radius = 12.
     
@@ -141,8 +141,9 @@ if __name__ == "__main__":
         points_3d=pts_3d,
         intrinsic_mat=K,
         world_from_cam=world_from_cam,
-        images = torch.empty(N,3,w,h),
-        static_mask=static_mask
+        images = torch.empty(N,3,h,w),
+        static_mask=static_mask,
+        times=times
     )
 
     parser = argparse.ArgumentParser(description='Show DRR')
@@ -168,6 +169,6 @@ if __name__ == "__main__":
         default_blueprint=blueprint
     )
 
-    log_to_rerun(results, times)
+    log_to_rerun(results)
 
     rr.script_teardown(args=args)

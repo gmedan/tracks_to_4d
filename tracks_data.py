@@ -11,6 +11,15 @@ class ClipWithTracks:
     world_from_cam: torch.Tensor | None = None # (N, 6)
     static_mask: torch.Tensor | None = None # (P,)
     intrinsic_mat: torch.Tensor = field(default_factory=lambda: torch.eye(3)) # (3, 3)
+    times: torch.Tensor | None = None # (N,)
+
+    @property
+    def width(self):
+        return self.images.shape[-1]
+    
+    @property
+    def height(self):
+        return self.images.shape[-2]
 
 
 @dataclass
