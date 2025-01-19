@@ -12,7 +12,7 @@ import rerun.blueprint.components as rrbc
 import argparse
 from tracks_data import ClipWithTracks
 
-def create_dynamic_points(N, P, radius):
+def create_dynamic_points(N: int, P: int, radius: float) -> torch.Tensor:
     times = torch.linspace(0, N-1, N)
     center = einops.rearrange(torch.stack([torch.cos(0.1*times)*radius,
                                            torch.sin(0.05*times)*radius,
@@ -22,7 +22,7 @@ def create_dynamic_points(N, P, radius):
     pts_3d_dynamic = center + pts_3d_dynamic * pts_3d_dynamic.norm(dim=-1, keepdim=True)**-1 * radius * 3
     return pts_3d_dynamic
 
-def create_static_points(P, radius, times):
+def create_static_points(P: int, radius: float, times: torch.Tensor) -> torch.Tensor:
     pts_3d_static = torch.stack(
         torch.meshgrid(torch.linspace(-radius*5, radius*5, int(P**.5)),
                        torch.linspace(-radius*5, radius*5, int(P**.5)),
@@ -34,7 +34,7 @@ def create_static_points(P, radius, times):
     pts_3d_static = einops.rearrange(pts_3d_static, 'x y z d -> 1 (x y z) d').repeat(len(times), 1, 1)
     return pts_3d_static
 
-def create_camera_trajectory(N, radius, times):
+def create_camera_trajectory(N: int, radius: float, times: torch.Tensor) -> torch.Tensor:
     cam_center = einops.rearrange(torch.stack([torch.cos(-0.02*times)*radius*12,
                                                torch.sin(0.02*times)*radius*12,
                                                torch.tensor(radius*5.).broadcast_to(times.shape)], 
@@ -53,7 +53,7 @@ def create_camera_trajectory(N, radius, times):
                                                         rotation=world_R_cam)
     return world_from_cam
 
-def log_to_rerun(results, times):
+def log_to_rerun(results: ClipWithTracks, times: torch.Tensor) -> None:
     rr.log('world', rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)  # Set an up-axis
 
     n_frames, n_pts = results.points_3d.shape[0], results.points_3d.shape[1]
