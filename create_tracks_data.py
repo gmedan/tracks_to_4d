@@ -53,11 +53,77 @@ def create_camera_trajectory(N, radius, times):
                                                         rotation=world_R_cam)
     return world_from_cam
 
+def log_to_rerun(results, times):
+    rr.log('world', rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)  # Set an up-axis
+
+    n_frames, n_pts = results.points_3d.shape[0], results.points_3d.shape[1]
+
+    colors = torch.tensor([[255,0,255], [255,255,0]])[results.static_mask.int()]
+    colors = einops.rearrange(colors, 'p c -> 1 p c').repeat(n_frames, 1, 1)
+    
+    rr.send_columns('world/pts', 
+                    times=[rr.TimeSequenceColumn("time", times)],
+                    components=[
+                        rr.Points3D.indicator(),
+                        rr.components.Position3DBatch(einops.rearrange(results.points_3d, 
+                                                                       'n p d -> (n p) d')).partition([n_pts] * n_frames),
+                        rr.components.ColorBatch(einops.rearrange(colors, 
+                                                                  'n p d -> (n p) d')).partition([n_pts] * n_frames),
+                        rr.components.RadiusBatch(data=[-3]*n_pts*n_frames).partition([n_pts] * n_frames)
+                    ],
+    )
+
+    rr.send_columns('world/cam/axes/pinhole/pts', 
+                    times=[rr.TimeSequenceColumn("time", times)],
+                    components=[
+                        rr.Points2D.indicator(),
+                        rr.components.Position2DBatch(einops.rearrange(results.points_2d, 
+                                                                       'n p d -> (n p) d')).partition([n_pts] * n_frames),
+                        rr.components.ColorBatch(einops.rearrange(colors, 
+                                                                  'n p d -> (n p) d')).partition([n_pts] * n_frames),                    
+                        rr.components.RadiusBatch(data=[-1]*n_pts*n_frames).partition([n_pts] * n_frames)                                                                  
+                    ],
+    )
+    
+    rr.log(
+        "world/cam",
+        [
+            rr.Points3D.indicator(),
+            rr.components.AxisLength(5.0),
+        ], 
+        timeless=True
+    )
+    rr.log(
+        "world/cam/axes",
+        [
+            rr.Points3D.indicator(),
+            rr.components.AxisLength(5.0),
+        ],
+        timeless=True
+    )
+    rr.log(
+        "world/cam/axes/pinhole",
+        rr.Pinhole(image_from_camera=results.intrinsic_mat,
+                   height=results.images.shape[-2], width=results.images.shape[-1],
+                   camera_xyz=rr.ViewCoordinates.RDF, 
+                   image_plane_distance=10.),
+        timeless=True,
+    )
+
+    for i, t in enumerate(times):
+        rr.set_time_sequence('time', t.int())
+        rr.log('world/cam',
+               rr.Transform3D(mat3x3=results.world_from_cam[i].rotation().matrix(),
+                              translation=results.world_from_cam[i].translation(),
+                              from_parent=False)
+               )
+
 if __name__ == "__main__":
     N, P = 45, 40
     w, h, f = 100, 100, 75
     K = torch.tensor([[f,0,w*.5-.5],[0,f,h*.5-.5],[0,0,1]])
     radius = 12.
+    
     times = torch.linspace(0, N-1, N)
 
     pts_3d_dynamic = create_dynamic_points(N, P, radius)
@@ -101,70 +167,7 @@ if __name__ == "__main__":
         "show_pts",
         default_blueprint=blueprint
     )
-    rr.log('world', rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)  # Set an up-axis
 
-    n_frames, n_pts = results.points_3d.shape[0], results.points_3d.shape[1]
-
-    colors = torch.tensor([[255,0,255],\
-                           [255,255,0]])[results.static_mask.int()]
-    colors = einops.rearrange(colors, 'p c -> 1 p c').repeat(n_frames, 1, 1)
-    
-    rr.send_columns('world/pts', 
-                    times=[rr.TimeSequenceColumn("time", times)],
-                    components=[
-                        rr.Points3D.indicator(),
-                        rr.components.Position3DBatch(einops.rearrange(results.points_3d, 
-                                                                       'n p d -> (n p) d')).partition([n_pts] * n_frames),
-                        rr.components.ColorBatch(einops.rearrange(colors, 
-                                                                  'n p d -> (n p) d')).partition([n_pts] * n_frames),
-                        rr.components.RadiusBatch(data=[-3]*n_pts*n_frames).partition([n_pts] * n_frames)
-                    ],
-    )
-
-    rr.send_columns('world/cam/axes/pinhole/pts', 
-                    times=[rr.TimeSequenceColumn("time", times)],
-                    components=[
-                        rr.Points2D.indicator(),
-                        rr.components.Position2DBatch(einops.rearrange(results.points_2d, 
-                                                                       'n p d -> (n p) d')).partition([n_pts] * n_frames),
-                        rr.components.ColorBatch(einops.rearrange(colors, 
-                                                                  'n p d -> (n p) d')).partition([n_pts] * n_frames),                    
-                        rr.components.RadiusBatch(data=[-1]*n_pts*n_frames).partition([n_pts] * n_frames)                                                                  
-                    ],
-    )
-    
-    
-    rr.log(
-        "world/cam",
-        [
-            rr.Points3D.indicator(),
-            rr.components.AxisLength(5.0),
-        ], 
-        timeless=True
-    )
-    rr.log(
-        "world/cam/axes",
-        [
-            rr.Points3D.indicator(),
-            rr.components.AxisLength(5.0),
-        ],
-        timeless=True
-    )
-    rr.log(
-        "world/cam/axes/pinhole",
-        rr.Pinhole(image_from_camera=results.intrinsic_mat,
-                   height=results.images.shape[-2], width=results.images.shape[-1],
-                   camera_xyz=rr.ViewCoordinates.RDF, 
-                   image_plane_distance=10.),
-        timeless=True,
-    )
-
-    for i, t in enumerate(times):
-        rr.set_time_sequence('time', t.int())
-        rr.log('world/cam',
-               rr.Transform3D(mat3x3=world_from_cam[i].rotation().matrix(),
-                              translation=world_from_cam[i].translation(),
-                              from_parent=False)
-               )
+    log_to_rerun(results, times)
 
     rr.script_teardown(args=args)
