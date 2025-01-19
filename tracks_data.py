@@ -1,15 +1,7 @@
 import torch
-import pypose as pp
+from einops import reduce, rearrange
 from dataclasses import dataclass, field
-import einops
-import pypose_utils
-import itertools
-import operator
-
-import rerun as rr
-import rerun.blueprint as rrb
-import rerun.blueprint.components as rrbc
-import argparse
+import pypose as pp
 
 @dataclass
 class ClipWithTracks:
@@ -20,135 +12,63 @@ class ClipWithTracks:
     static_mask: torch.Tensor | None = None # (P,)
     intrinsic_mat: torch.Tensor = field(default_factory=lambda: torch.eye(3)) # (3, 3)
 
-if __name__ == "__main__":
-    N, P = 45, 40
-    w, h, f = 100, 100, 75
-    K = torch.tensor([[f,0,w*.5-.5],[0,f,h*.5-.5],[0,0,1]])
-    radius = 12.
-    times = torch.linspace(0, N, N)
-    center = einops.rearrange(torch.stack([torch.cos(0.1*times)*radius,
-                                           torch.sin(0.05*times)*radius,
-                                           3*radius+0.01*times**2], 
-                                           dim=-1), 'n t -> n 1 t')
-    pts_3d_dynamic = pp.randn_so3(1, P).tensor()
-    pts_3d_dynamic = center + pts_3d_dynamic * pts_3d_dynamic.norm(dim=-1, keepdim=True)**-1 * radius * 3
 
-    pts_3d_static = torch.stack(
-        torch.meshgrid(torch.linspace(-radius*5, radius*5, int(P**.5)),
-                       torch.linspace(-radius*5, radius*5, int(P**.5)),
-                       torch.tensor(0.), 
-                       indexing='ij'
-        ),
-        dim=-1
-    )
-    pts_3d_static = einops.rearrange(pts_3d_static, 'x y z d -> 1 (x y z) d').repeat(len(times), 1, 1)
+@dataclass
+class TracksTo4DOutputs:
+    """
+    Dataclass to hold the outputs of the TRACKSTO4D model forward pass.
+    """
+    bases: torch.Tensor  # Shape: (P, K, 3)
+    gamma: torch.Tensor  # Shape: (P,)
+    camera_poses: torch.Tensor  # Shape: (N, 6)
+    coefficients: torch.Tensor  # Shape: (N, K-1)
 
-    cam_center = einops.rearrange(torch.stack([torch.cos(-0.02*times)*radius*12,
-                                               torch.sin(0.02*times)*radius*12,
-                                               torch.tensor(radius*5.).broadcast_to(times.shape)], 
-                                               dim=-1), 'n t -> n t')
+    def calculate_points(self) -> torch.Tensor:
+        """
+        Calculate the tensor of 3D points from bases and coefficients.
 
-    world_R_cam = rotation=pypose_utils.existing_R_new_yz(new_y_in_existing=torch.tensor([0,1.0,0]).cross(cam_center[0].squeeze(), dim=-1),
-                                                          new_z_in_existing=-cam_center[0].squeeze())
+        The first basis element has an implicit coefficient of 1 and is added separately.
 
-    drot = pp.euler2SO3(torch.tensor([.001,-0.015,0]))
-    step = drot.repeat(N-1,1) @ pp.randn_SO3(N-1,sigma=0.005)
-    world_R_cam = pp.SO3(torch.stack(list(itertools.accumulate(
-        step,
-        operator.mul,
-        initial=world_R_cam))))
-    world_from_cam = pypose_utils.create_SE3_from_parts(translation=cam_center,
-                                                        rotation=world_R_cam)
-    pts_3d = torch.cat([pts_3d_dynamic,
-                        pts_3d_static], dim=1)
-    pts_2d = pp.point2pixel(pts_3d,
-                            intrinsics=K,
-                            extrinsics=world_from_cam.Inv())
+        Returns:
+            torch.Tensor: Tensor of points with shape (N, P, 3).
+        """
+        # Ensure the coefficients and bases have compatible shapes
+        assert self.coefficients.dim() == 2, "Coefficients must have shape (N, K-1)"
+        assert self.bases.dim() == 3, "Bases must have shape (P, K, 3)"
+        assert self.coefficients.shape[1] == self.bases.shape[1] - 1, (
+            "Number of coefficients must be K-1 where K is the number of bases"
+        )
+        
+        # Separate the first basis (implicit coefficient = 1) and the remaining bases
+        first_basis = self.bases[:, 0, :]  # Shape: (P, 3)
+        remaining_bases = self.bases[:, 1:, :]  # Shape: (P, K-1, 3)
+        
+        # Compute the points using the coefficients and remaining bases
+        points_from_coefficients = torch.einsum('nk,pkm->npm', self.coefficients, remaining_bases)  # Shape: (N, P, 3)
+        
+        # Add the first basis to the result using einops.rearrange
+        first_basis_expanded = rearrange(first_basis, 'p c -> 1 p c')  # Shape: (1, P, 3)
+        points = points_from_coefficients + first_basis_expanded  # Shape: (N, P, 3)
+        
+        return points
 
-    results = ClipWithTracks(
-        points_2d=pts_2d,
-        points_3d=pts_3d,
-        intrinsic_mat=K,
-        world_from_cam=world_from_cam,
-        images = torch.empty(N,3,w,h)
-    )
-
-    parser = argparse.ArgumentParser(description='Show DRR')
-    rr.script_add_args(parser)
-    args = parser.parse_args()
+    @property
+    def camera_from_world(self):
+        return pp.se3(rearrange(self.camera_poses, 'n s -> n 1 s')).Exp()
     
-    blueprint = rrb.Blueprint(
-        rrb.Spatial3DView(
-            name='Tracks',
-            origin="world",
-            time_ranges=[
-                rrb.VisibleTimeRange(
-                    timeline="time",
-                    start=rrb.TimeRangeBoundary.cursor_relative(seq=0),
-                    end=rrb.TimeRangeBoundary.cursor_relative(),
-                )
-            ],
-        ),
-    )
-    rr.script_setup(
-        args,
-        "show_pts",
-        default_blueprint=blueprint
-    )
-    rr.log('world', rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)  # Set an up-axis
-
-    rr.send_columns('world/pts', 
-                    times=[rr.TimeSequenceColumn("time", times)],
-                    components=[
-                        rr.Points3D.indicator(),
-                        rr.components.Position3DBatch(einops.rearrange(results.points_3d, 
-                                                                       'n p d -> (n p) d')).partition([results.points_3d.shape[1]] * results.points_3d.shape[0]),
-                        rr.components.ColorBatch([(255,255,255)]*N),
-                    ],
-    )
-
-    rr.send_columns('world/cam/axes/pinhole/pts', 
-                    times=[rr.TimeSequenceColumn("time", times)],
-                    components=[
-                        rr.Points2D.indicator(),
-                        rr.components.Position2DBatch(einops.rearrange(results.points_2d, 
-                                                                       'n p d -> (n p) d')).partition([results.points_2d.shape[1]] * results.points_2d.shape[0]),
-                        rr.components.ColorBatch([(255,255,255)]*N),
-                    ],
-    )
+    def points_3d_in_cameras_coords(self, points_3d: torch.Tensor):
+        return self.camera_from_world.Act(points_3d)
     
+    def reproject_points(self, points_3d_in_cameras_coords: torch.Tensor):
+        reprojected = pp.point2pixel(
+            points=points_3d_in_cameras_coords,
+            intrinsics=torch.eye(3, dtype=points_3d_in_cameras_coords.dtype, device=points_3d_in_cameras_coords.device),
+        )
+
+        return reprojected
     
-    rr.log(
-        "world/cam",
-        [
-            rr.Points3D.indicator(),
-            rr.components.AxisLength(5.0),
-        ], 
-        timeless=True
-    )
-    rr.log(
-        "world/cam/axes",
-        [
-            rr.Points3D.indicator(),
-            rr.components.AxisLength(5.0),
-        ],
-        timeless=True
-    )
-    rr.log(
-        "world/cam/axes/pinhole",
-        rr.Pinhole(image_from_camera=results.intrinsic_mat,
-                   height=results.images.shape[-2], width=results.images.shape[-1],
-                   camera_xyz=rr.ViewCoordinates.RDF, 
-                   image_plane_distance=10.),
-        timeless=True,
-    )
-
-    for i, t in enumerate(times):
-        rr.set_time_sequence('time', t.int())
-        rr.log('world/cam',
-               rr.Transform3D(mat3x3=world_from_cam[i].rotation().matrix(),
-                              translation=world_from_cam[i].translation(),
-                              from_parent=False)
-               )
-
-    rr.script_teardown(args=args)
+    def reprojection_errors(self, 
+                            point2d_predicted: torch.Tensor, 
+                            point2d_measured_with_visibility: torch.Tensor):
+        
+        return point2d_predicted - point2d_measured_with_visibility[..., :2]

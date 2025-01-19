@@ -4,7 +4,7 @@ from einops import reduce, rearrange
 
 from positional_encoding import TemporalPositionalEncoding
 from equivariant_attention import EquivariantAttentionLayer
-from tracks_prediction_data import TracksTo4DOutputs
+from tracks_data import TracksTo4DOutputs
 
 
 class TracksTo4D(nn.Module):

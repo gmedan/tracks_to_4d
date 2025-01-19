@@ -4,7 +4,7 @@ import einops
 import pypose as pp
 from dataclasses import dataclass
 
-from tracks_prediction_data import TracksTo4DOutputs
+from tracks_data import TracksTo4DOutputs
 
 @dataclass
 class TracksTo4DLossWeights:
