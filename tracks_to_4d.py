@@ -41,7 +41,7 @@ class TracksTo4D(nn.Module):
         
         # Projection weights for outputs
         self.weight_bases = nn.Parameter(torch.randn(d_model, num_bases, 3))  # d_model -> (K, 3)
-        self.weight_gamma = nn.Parameter(torch.randn(d_model))  # 1D weight for gamma
+        self.weight_gamma = nn.Parameter(torch.rand(d_model))  # 1D weight for gamma
         
         # 1D convolution for camera poses and coefficients
         self.conv_camera_poses = nn.Conv1d(

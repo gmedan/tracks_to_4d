@@ -76,8 +76,3 @@ class TracksTo4DOutputs:
 
         return reprojected
     
-    def reprojection_errors(self, 
-                            point2d_predicted: torch.Tensor, 
-                            point2d_measured_with_visibility: torch.Tensor):
-        
-        return point2d_predicted - point2d_measured_with_visibility[..., :2]

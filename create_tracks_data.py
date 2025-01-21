@@ -12,6 +12,10 @@ import rerun.blueprint.components as rrbc
 import argparse
 from tracks_data import ClipWithTracks
 
+from tracks_to_4d import TracksTo4D, TracksTo4DOutputs
+from losses import TracksTo4DLossMetaParams, calculate_costs
+from utils import pad_val_after
+
 def create_dynamic_points(N: int, P: int, radius: float) -> torch.Tensor:
     times = torch.linspace(0, N-1, N)
     center = einops.rearrange(torch.stack([torch.cos(0.1*times)*radius,
@@ -136,7 +140,7 @@ if __name__ == "__main__":
     pts_2d = pp.point2pixel(pts_3d, intrinsics=K, extrinsics=world_from_cam.Inv())
 
 
-    results = ClipWithTracks(
+    data = ClipWithTracks(
         points_2d=pts_2d,
         points_3d=pts_3d,
         intrinsic_mat=K,
@@ -169,6 +173,18 @@ if __name__ == "__main__":
         default_blueprint=blueprint
     )
 
-    log_to_rerun(results)
+    log_to_rerun(data)
+
+    model = TracksTo4D()
+    loss_metaparams = TracksTo4DLossMetaParams()
+
+    point2d_with_visibility = pad_val_after(data.points_2d, dim=-1, val=1)
+    pred = model(point2d_with_visibility)
+    costs = calculate_costs(
+        predictions=pred, 
+        point2d_measured_with_visibility=point2d_with_visibility)
+    loss = costs.calc_loss(loss_weights=loss_metaparams)
+    loss.backward()
+
 
     rr.script_teardown(args=args)
