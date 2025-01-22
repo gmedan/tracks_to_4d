@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import einops
 from einops.layers.torch import EinMix as Mix
+from einops.layers.torch import Rearrange, Reduce
 
 from positional_encoding import TemporalPositionalEncoding
 from equivariant_attention import EquivariantAttentionLayer
@@ -45,27 +46,33 @@ class TracksTo4D(nn.Module):
         # Projection weights for outputs
         self.weight_bases = Mix('p d_model -> p num_bases three',
                                 weight_shape='d_model num_bases three',
-                                d_model=d_model, num_bases=num_bases, three=3)  # d_model -> (K, 3)
+                                d_model=d_model, num_bases=num_bases, three=3)
         
         self.weight_gamma = Mix('p d_model -> p',
                                 weight_shape='d_model',
                                 d_model=d_model)  # 1D weight for gamma
         
         # 1D convolution for camera poses and coefficients
-        self.conv_camera_poses = nn.Conv1d(
-            in_channels=d_model, 
-            out_channels=6, 
-            kernel_size=kernel_size, 
-            padding='same', 
-            padding_mode='replicate'
-        )  # Maps (d_model, N) -> (6, N)
-        self.conv_coefficients = nn.Conv1d(
-            in_channels=d_model, 
-            out_channels=num_bases - 1, 
-            kernel_size=kernel_size, 
-            padding='same', 
-            padding_mode='replicate'
-        )  # Maps (d_model, N) -> (K-1, N)
+        self.conv_camera_poses = nn.Sequential(
+            nn.Conv1d(
+                in_channels=d_model, 
+                out_channels=6, 
+                kernel_size=kernel_size, 
+                padding='same', 
+                padding_mode='replicate'
+            ),  # Maps (d_model, N) -> (6, N)
+            Rearrange('six n -> n six')
+        )
+        self.conv_coefficients = nn.Sequential(
+            nn.Conv1d(
+                in_channels=d_model, 
+                out_channels=num_bases - 1, 
+                kernel_size=kernel_size, 
+                padding='same', 
+                padding_mode='replicate'
+            ),  # Maps (d_model, N) -> (K-1, N)
+            Rearrange('k n -> n k')
+        )
     
     def forward(self, x: torch.Tensor) -> TracksTo4DOutputs:
         """
@@ -100,14 +107,9 @@ class TracksTo4D(nn.Module):
         
         # Frame-level features (aggregated over points)
         frame_features = einops.reduce(features, 'n p d -> d n', 'mean')  # Reduce over points and rearrange to (d_model, N)
-        
         # Apply 1D convolution for camera poses and coefficients
-        camera_poses = einops.rearrange(
-            self.conv_camera_poses(frame_features), 's n -> n s'
-        )  # (6, N) -> (N, 6)
-        coefficients = einops.rearrange(
-            self.conv_coefficients(frame_features), 'k n -> n k'
-        )  # (K-1, N) -> (N, K-1)
+        camera_poses = self.conv_camera_poses(frame_features) # (N, 6)
+        coefficients = self.conv_coefficients(frame_features) # (N, K-1)
         
         return TracksTo4DOutputs(
             bases=bases,
