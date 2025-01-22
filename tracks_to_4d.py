@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from einops import reduce, rearrange
+import einops
 from einops.layers.torch import EinMix as Mix
 
 from positional_encoding import TemporalPositionalEncoding
@@ -89,18 +89,18 @@ class TracksTo4D(nn.Module):
         
         # Step 4: Output projections using einsum
         # Point-level features (aggregated over frames)
-        point_features = reduce(features, 'n p d -> p d', 'mean')  # Reduce over frames
+        point_features = einops.reduce(features, 'n p d -> p d', 'mean')  # Reduce over frames
         bases = torch.einsum('pd,dkl->pkl', point_features, self.weight_bases)  # (P, d_model) x (d_model, K, 3) -> (P, K, 3)
         gamma = torch.einsum('pd,d->p', point_features, self.weight_gamma)  # Element-wise multiply and sum over d_model
         
         # Frame-level features (aggregated over points)
-        frame_features = reduce(features, 'n p d -> d n', 'mean')  # Reduce over points and rearrange to (d_model, N)
+        frame_features = einops.reduce(features, 'n p d -> d n', 'mean')  # Reduce over points and rearrange to (d_model, N)
         
         # Apply 1D convolution for camera poses and coefficients
-        camera_poses = rearrange(
+        camera_poses = einops.rearrange(
             self.conv_camera_poses(frame_features), 's n -> n s'
         )  # (6, N) -> (N, 6)
-        coefficients = rearrange(
+        coefficients = einops.rearrange(
             self.conv_coefficients(frame_features), 'k n -> n k'
         )  # (K-1, N) -> (N, K-1)
         

@@ -58,20 +58,24 @@ class EquivariantAttentionLayer(nn.Module):
         # Step 1: Temporal Attention (Equation 2)
         qkv = self.qkv_temporal(x) # Shapes: (3, H, M, N, P)
         q, k, v = qkv # Shapes: (H, M, N, P)
-        attention_scores = torch.einsum('hmij,hmIj->hiIj', q, k)  # Shape: (H, N, N, P)
+        
+        attention_scores = einops.einsum(q, k,
+                                         'num_heads head_dim i j, num_heads head_dim I j -> num_heads i I j')  # Shape: (H, N, N, P)
         attention_weights = F.softmax(attention_scores, dim=2)  # normlization across frames (I). Shape: (H, N, N, P)
-
-        temporal_attended = torch.einsum('hIij,hmIj->hmij', attention_weights, v)  # Shape: (H, M, N, P)
+        temporal_attended = einops.einsum(attention_weights, v, 
+                                          'num_heads i I j, num_heads head_dim I j -> num_heads head_dim i j')  # Shape: (H, M, N, P)
 
         # Step 2: Point Attention (Equation 3)
         qkv = self.qkv_point(temporal_attended)  # Shape: (3, H, M, N, P)
         q, k, v = qkv # Shapes: (H, M, N, P)
 
-        attention_scores = torch.einsum('hmij,hmiJ->hijJ', q, k)  # Shape: (H, N, P, P)
+        attention_scores = einops.einsum(q, k,
+                                         'num_heads head_dim i j, num_heads head_dim i J -> num_heads i j J')  # Shape: (H, N, P, P)
         attention_weights = F.softmax(attention_scores, dim=-1)  # normalizes across points (J). Shape: (H, N, P, P)
 
-        point_attended = torch.einsum('hijJ,hmiJ->ijhm', attention_weights, v)  # Shape: (N, P, H, M)
-        point_attended = einops.rearrange(point_attended, 'i j h m -> i j (h m)')  # Shape: (N, P, D_out)
+        point_attended = einops.einsum(attention_weights, v,
+                                       'num_heads i j J, num_heads head_dim i J -> i j num_heads head_dim')  # Shape: (N, P, H, M)
+        point_attended = einops.rearrange(point_attended, 'i j num_heads head_dim -> i j (num_heads head_dim)')  # Shape: (N, P, D_out)
 
         result = self.fully_connected(point_attended)
         return result
