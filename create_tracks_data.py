@@ -13,7 +13,7 @@ import argparse
 from tracks_data import ClipWithTracks
 
 from tracks_to_4d import TracksTo4D, TracksTo4DOutputs
-from losses import TracksTo4DLossMetaParams, calculate_costs
+from losses import TracksTo4DLossMetaParams, calculate_costs, calculate_pretrain_loss
 from utils import pad_val_after
 
 def create_dynamic_points(N: int, P: int, radius: float) -> torch.Tensor:
@@ -176,15 +176,23 @@ if __name__ == "__main__":
     log_to_rerun(data)
 
     model = TracksTo4D()
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
     loss_metaparams = TracksTo4DLossMetaParams()
 
     point2d_with_visibility = pad_val_after(data.points_2d, dim=-1, val=1)
-    pred = model(point2d_with_visibility)
-    costs = calculate_costs(
-        predictions=pred, 
-        point2d_measured_with_visibility=point2d_with_visibility)
-    loss = costs.calc_loss(loss_weights=loss_metaparams)
-    loss.backward()
 
+    for epoch in range(3):  # Number of epochs can be adjusted
+        optimizer.zero_grad()
+        pred = model(point2d_with_visibility)
+        # costs = calculate_costs(
+        #     predictions=pred, 
+        #     point2d_measured_with_visibility=point2d_with_visibility)
+        # loss = costs.calc_loss(loss_weights=loss_metaparams)
+        loss = calculate_pretrain_loss(predictions=pred)
+        
+        loss.retain_grad()
+        loss.backward(retain_graph=True)
+        optimizer.step()
+        print(f"Epoch {epoch+1}, Loss: {loss.item()}")
 
     rr.script_teardown(args=args)

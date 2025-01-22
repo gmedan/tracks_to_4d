@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from einops import reduce, rearrange
+from einops.layers.torch import EinMix as Mix
 
 from positional_encoding import TemporalPositionalEncoding
 from equivariant_attention import EquivariantAttentionLayer
@@ -29,7 +30,9 @@ class TracksTo4D(nn.Module):
         self.positional_encoding = TemporalPositionalEncoding()
         
         # Linear layer to project positional encoding to d_model
-        self.input_projection = nn.Linear(3, d_model)
+        self.input_projection = Mix('N P d_in -> N P d_out', 
+                                    weight_shape='d_in d_out', 
+                                    d_in=3, d_out=d_model)
         
         # Attention layers
         self.attention_layers = nn.ModuleList([
