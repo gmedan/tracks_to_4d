@@ -43,8 +43,13 @@ class TracksTo4D(nn.Module):
         ])
         
         # Projection weights for outputs
-        self.weight_bases = nn.Parameter(torch.randn(d_model, num_bases, 3))  # d_model -> (K, 3)
-        self.weight_gamma = nn.Parameter(torch.rand(d_model))  # 1D weight for gamma
+        self.weight_bases = Mix('p d_model -> p num_bases three',
+                                weight_shape='d_model num_bases three',
+                                d_model=d_model, num_bases=num_bases, three=3)  # d_model -> (K, 3)
+        
+        self.weight_gamma = Mix('p d_model -> p',
+                                weight_shape='d_model',
+                                d_model=d_model)  # 1D weight for gamma
         
         # 1D convolution for camera poses and coefficients
         self.conv_camera_poses = nn.Conv1d(
@@ -87,11 +92,11 @@ class TracksTo4D(nn.Module):
         for attention_layer in self.attention_layers:
             features = attention_layer(features)  # Apply combined frame and point attention
         
-        # Step 4: Output projections using einsum
+        # Step 4: Output projections
         # Point-level features (aggregated over frames)
         point_features = einops.reduce(features, 'n p d -> p d', 'mean')  # Reduce over frames
-        bases = torch.einsum('pd,dkl->pkl', point_features, self.weight_bases)  # (P, d_model) x (d_model, K, 3) -> (P, K, 3)
-        gamma = torch.einsum('pd,d->p', point_features, self.weight_gamma)  # Element-wise multiply and sum over d_model
+        bases = self.weight_bases(point_features)  # (P, K, 3)
+        gamma = self.weight_gamma(point_features)  # (P,)
         
         # Frame-level features (aggregated over points)
         frame_features = einops.reduce(features, 'n p d -> d n', 'mean')  # Reduce over points and rearrange to (d_model, N)
