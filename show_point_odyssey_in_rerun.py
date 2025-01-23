@@ -6,7 +6,7 @@ from pathlib import Path
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Process input folder for point odyssey.")
-    parser.add_argument('input_folder', type=str, nargs='?', default='C:/Users/Guy/Downloads/sample.tar/sample/r4_new_f', help='Path to the input folder')
+    parser.add_argument('input_folder', type=str, nargs='?', default='C:/Users/Guy/Downloads/sample.tar/sample/scene_d78_0318_3rd', help='Path to the input folder')
     rr.script_add_args(parser)
 
     args = parser.parse_args()
@@ -52,7 +52,7 @@ if __name__ == "__main__":
     
     rr.script_setup(
         args,
-        "show_point_odyssey",
+        Path(args.input_folder).stem,
         default_blueprint=blueprint
     )
     rr.log('world/axes', rr.Transform3D(axis_length=1.0), static=True)
