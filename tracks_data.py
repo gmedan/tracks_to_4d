@@ -1,5 +1,5 @@
 import torch
-from einops import reduce, rearrange
+import einops
 from dataclasses import dataclass, field
 import pypose as pp
 
@@ -20,7 +20,14 @@ class ClipWithTracks:
     @property
     def height(self):
         return self.images.shape[-2]
+    
+    @property
+    def num_points(self):
+        return self.points_2d.shape[1]
 
+    @property
+    def num_frames(self):
+        return self.points_2d.shape[0]
 
 @dataclass
 class TracksTo4DOutputs:
@@ -53,17 +60,17 @@ class TracksTo4DOutputs:
         remaining_bases = self.bases[:, 1:, :]  # Shape: (P, K-1, 3)
         
         # Compute the points using the coefficients and remaining bases
-        points_from_coefficients = torch.einsum('nk,pkm->npm', self.coefficients, remaining_bases)  # Shape: (N, P, 3)
+        points_from_coefficients = einops.einsum(self.coefficients, remaining_bases,'n k, p k m -> n p m')  # Shape: (N, P, 3)
         
         # Add the first basis to the result using einops.rearrange
-        first_basis_expanded = rearrange(first_basis, 'p c -> 1 p c')  # Shape: (1, P, 3)
+        first_basis_expanded = einops.rearrange(first_basis, 'p c -> 1 p c')  # Shape: (1, P, 3)
         points = points_from_coefficients + first_basis_expanded  # Shape: (N, P, 3)
         
         return points
 
     @property
     def camera_from_world(self):
-        return pp.se3(rearrange(self.camera_poses, 'n s -> n 1 s')).Exp()
+        return pp.se3(einops.rearrange(self.camera_poses, 'n s -> n 1 s')).Exp()
     
     def points_3d_in_cameras_coords(self, points_3d: torch.Tensor):
         return self.camera_from_world.Act(points_3d)

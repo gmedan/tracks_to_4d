@@ -85,10 +85,11 @@ def calculate_costs(predictions: TracksTo4DOutputs,
     )
 
 
-def calculate_pretrain_loss(predictions: TracksTo4DOutputs, z: float = -15., scale:float = 0.01):
+def calculate_pretrain_loss(predictions: TracksTo4DOutputs, 
+                            target_world_from_cam: pp.SE3,  # type: ignore
+                            scale:float = 0.01):
     delta = predictions.camera_from_world @ \
-            pypose_utils.create_SE3_from_parts(rotation=pp.identity_SO3(1,1),
-                                               translation=(torch.tensor([[[0,0,z]]])))
+            target_world_from_cam
     
-    return ((delta.rotation().matrix() - torch.eye(3)[None, None, ...])**2).mean() + \
-            (delta.translation()**2).sum(dim=-1).mean() * scale
+    return (delta.rotation().Log()**2).sum(dim=-1).mean() + \
+           (delta.translation()**2).sum(dim=-1).mean() * scale**2

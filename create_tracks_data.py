@@ -175,24 +175,51 @@ if __name__ == "__main__":
 
     log_to_rerun(data)
 
-    model = TracksTo4D()
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    model = TracksTo4D(num_bases=2).double()
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.5)
     loss_metaparams = TracksTo4DLossMetaParams()
 
-    point2d_with_visibility = pad_val_after(data.points_2d, dim=-1, val=1)
+    point2d_with_visibility = pad_val_after(data.points_2d, dim=-1, val=1).double()
 
-    for epoch in range(3):  # Number of epochs can be adjusted
+    bases_colors = (torch.rand(model.num_bases, 3)*255).int()
+    bases_colors = einops.repeat(bases_colors, 
+                                 'k d -> (p k) d', p=data.num_points, d=3)
+    pretrain_epochs = 300
+    target_world_from_cam = data.world_from_cam[0].double()
+
+    rr.set_time_sequence('time', data.times[0].int())
+    for epoch in range(3000):
         optimizer.zero_grad()
-        pred = model(point2d_with_visibility)
-        # costs = calculate_costs(
-        #     predictions=pred, 
-        #     point2d_measured_with_visibility=point2d_with_visibility)
-        # loss = costs.calc_loss(loss_weights=loss_metaparams)
-        loss = calculate_pretrain_loss(predictions=pred)
+        pred: TracksTo4DOutputs = model(point2d_with_visibility)
+        loss = calculate_pretrain_loss(predictions=pred, 
+                                       target_world_from_cam=target_world_from_cam) \
+               if epoch < pretrain_epochs else \
+               calculate_costs(predictions=pred, 
+                               point2d_measured_with_visibility=point2d_with_visibility).calc_loss(loss_weights=loss_metaparams)
         
         loss.retain_grad()
         loss.backward(retain_graph=True)
         optimizer.step()
-        print(f"Epoch {epoch+1}, Loss: {loss.item()}")
+        scheduler.step()
+        print(f"Epoch {epoch+1}, Loss: {loss.item()}, LR: {scheduler.get_last_lr()[0]}")
+
+        
+        rr.log('world/pred/bases', 
+               rr.Points3D(einops.rearrange(pred.bases.detach(), 'p k d -> (p k) d', d=3),
+                           colors=bases_colors),
+               timeless=True
+        )
+        world_from_cameras = pred.camera_from_world.Inv().detach().squeeze() # (N, 7)
+        for i, wTc in enumerate(world_from_cameras):
+            rr.log(f'world/pred/cams/{i}', 
+                   rr.Transform3D(mat3x3=wTc.rotation().matrix(),
+                                  translation=wTc.translation(),
+                                  from_parent=False),
+                   rr.Pinhole(image_from_camera=data.intrinsic_mat,
+                              height=data.height, width=data.width,
+                              camera_xyz=rr.ViewCoordinates.RDF, 
+                              image_plane_distance=10.),
+            )
 
     rr.script_teardown(args=args)
