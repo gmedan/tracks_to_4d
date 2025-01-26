@@ -7,7 +7,7 @@ import einops
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Process input folder for point odyssey.")
-    parser.add_argument('input_folder', type=str, nargs='?', default='C:/Users/Guy/Downloads/sample.tar/sample/r4_new_f', help='Path to the input folder')
+    parser.add_argument('input_folder', type=str, nargs='?', default='X:/Datasets/point_odyssey/train/ani5_new_', help='Path to the input folder')
     rr.script_add_args(parser)
 
     args = parser.parse_args()
