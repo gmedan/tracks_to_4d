@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import einops 
 
 class TemporalPositionalEncoding(nn.Module):
     """
@@ -30,13 +31,13 @@ class TemporalPositionalEncoding(nn.Module):
         Add positional encoding to the input tensor.
         
         Args:
-            x (torch.Tensor): Input tensor of shape (N, P, d_model).
+            x (torch.Tensor): Input tensor of shape (B, N, P, d_model).
         
         Returns:
             torch.Tensor: Input tensor with positional encoding added, same shape as input.
         """
-        N, P, D = x.shape
-        pos_encoding = self.pe[:N, :].unsqueeze(1)  # Shape: (N, 1, d_model)
+        B, N, P, D = x.shape
+        pos_encoding = einops.rearrange(self.pe[:N, :], 'n d -> 1 n 1 d')  # Shape: (B, N, 1, d_model)
         if D == self.d_model + 1:
             pos_encoding = torch.concat([pos_encoding, torch.zeros_like(pos_encoding[...,0:1])], dim=-1)
         elif D == self.d_model:\

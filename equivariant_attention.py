@@ -23,13 +23,13 @@ class EquivariantAttentionLayer(nn.Module):
         assert self.output_dim % self.num_heads == 0, "Output dimension must be divisible by number of heads."
 
         # Linear projections for query, key, value for temporal and point attention
-        self.qkv_temporal = Mix('i j input_dim -> qkv head_dim num_heads i j', 
+        self.qkv_temporal = Mix('batch i j input_dim -> qkv batch head_dim num_heads i j', 
                                 weight_shape='qkv input_dim head_dim num_heads', 
                                 qkv=3, 
                                 input_dim=input_dim, 
                                 num_heads=self.num_heads, head_dim=self.head_dim)
 
-        self.qkv_point = Mix('head_dim_in num_heads_in i j -> qkv head_dim num_heads i j', 
+        self.qkv_point = Mix('batch head_dim_in num_heads_in i j -> qkv batch head_dim num_heads i j', 
                              weight_shape='qkv head_dim_in num_heads_in head_dim num_heads', 
                              qkv=3,
                              num_heads_in=self.num_heads, head_dim_in=self.head_dim, 
@@ -37,7 +37,8 @@ class EquivariantAttentionLayer(nn.Module):
         
         self.fully_connected = nn.Sequential(
             nn.Linear(output_dim, hidden_layer_dim),
-            nn.Linear(hidden_layer_dim, output_dim)
+            nn.ReLU(),
+            nn.Linear(hidden_layer_dim, output_dim),
         )
 
     def forward(self, x):
@@ -53,29 +54,29 @@ class EquivariantAttentionLayer(nn.Module):
         Returns:
             torch.Tensor: Output tensor of shape (N, P, H*M).
         """
-        N, P, D = x.shape
+        B, N, P, D = x.shape
 
         # Step 1: Temporal Attention (Equation 2)
         qkv = self.qkv_temporal(x) # Shapes: (3, H, M, N, P)
         q, k, v = qkv # Shapes: (H, M, N, P)
         
         attention_scores = einops.einsum(q, k,
-                                         'num_heads head_dim i j, num_heads head_dim I j -> num_heads i I j')  # Shape: (H, N, N, P)
-        attention_weights = F.softmax(attention_scores, dim=2)  # normlization across frames (I). Shape: (H, N, N, P)
+                                         'batch num_heads head_dim i j, batch num_heads head_dim I j -> batch num_heads i I j')  # Shape: (B, H, N, N, P)
+        attention_weights = F.softmax(attention_scores, dim=2)  # normlization across frames (I). Shape: (B, H, N, N, P)
         temporal_attended = einops.einsum(attention_weights, v, 
-                                          'num_heads i I j, num_heads head_dim I j -> num_heads head_dim i j')  # Shape: (H, M, N, P)
+                                          'batch num_heads i I j, batch num_heads head_dim I j -> batch num_heads head_dim i j')  # Shape: (B, H, M, N, P)
 
         # Step 2: Point Attention (Equation 3)
         qkv = self.qkv_point(temporal_attended)  # Shape: (3, H, M, N, P)
         q, k, v = qkv # Shapes: (H, M, N, P)
 
         attention_scores = einops.einsum(q, k,
-                                         'num_heads head_dim i j, num_heads head_dim i J -> num_heads i j J')  # Shape: (H, N, P, P)
-        attention_weights = F.softmax(attention_scores, dim=-1)  # normalizes across points (J). Shape: (H, N, P, P)
+                                         'batch num_heads head_dim i j, batch num_heads head_dim i J -> batch num_heads i j J')  # Shape: (B, H, N, P, P)
+        attention_weights = F.softmax(attention_scores, dim=-1)  # normalizes across points (J). Shape: (B, H, N, P, P)
 
         point_attended = einops.einsum(attention_weights, v,
-                                       'num_heads i j J, num_heads head_dim i J -> i j num_heads head_dim')  # Shape: (N, P, H, M)
-        point_attended = einops.rearrange(point_attended, 'i j num_heads head_dim -> i j (num_heads head_dim)')  # Shape: (N, P, D_out)
+                                       'batch num_heads i j J, batch num_heads head_dim i J -> batch i j num_heads head_dim')  # Shape: (B, N, P, H, M)
+        point_attended = einops.rearrange(point_attended, 'batch i j num_heads head_dim -> batch i j (num_heads head_dim)')  # Shape: (B, N, P, D_out)
 
         result = self.fully_connected(point_attended)
         return result

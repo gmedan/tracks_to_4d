@@ -31,7 +31,7 @@ class TracksTo4D(nn.Module):
         self.positional_encoding = TemporalPositionalEncoding()
         
         # Linear layer to project positional encoding to d_model
-        self.input_projection = Mix('N P d_in -> N P d_out', 
+        self.input_projection = Mix('B N P d_in -> B N P d_out', 
                                     weight_shape='d_in d_out', 
                                     d_in=3, d_out=d_model)
         
@@ -44,11 +44,11 @@ class TracksTo4D(nn.Module):
         ])
         
         # Projection weights for outputs
-        self.weight_bases = Mix('p d_model -> p num_bases three',
+        self.weight_bases = Mix('b p d_model -> b p num_bases three',
                                 weight_shape='d_model num_bases three',
                                 d_model=d_model, num_bases=num_bases, three=3)
         
-        self.weight_gamma = Mix('p d_model -> p',
+        self.weight_gamma = Mix('b p d_model -> b p',
                                 weight_shape='d_model',
                                 d_model=d_model)  # 1D weight for gamma
         
@@ -60,8 +60,8 @@ class TracksTo4D(nn.Module):
                 kernel_size=kernel_size, 
                 padding='same', 
                 padding_mode='replicate'
-            ),  # Maps (d_model, N) -> (6, N)
-            Rearrange('six n -> n six')
+            ),  # Maps (B, d_model, N) -> (B, 6, N)
+            Rearrange('b six n -> b n six')
         )
         self.conv_coefficients = nn.Sequential(
             nn.Conv1d(
@@ -70,8 +70,8 @@ class TracksTo4D(nn.Module):
                 kernel_size=kernel_size, 
                 padding='same', 
                 padding_mode='replicate'
-            ),  # Maps (d_model, N) -> (K-1, N)
-            Rearrange('k n -> n k')
+            ),  # Maps (B, d_model, N) -> (B, K-1, N)
+            Rearrange('b k n -> b n k')
         )
     
     def forward(self, x: torch.Tensor) -> TracksTo4DOutputs:
@@ -86,14 +86,12 @@ class TracksTo4D(nn.Module):
         
         Returns:
             Tracksto4DOutputs: Object containing the outputs of the forward pass.
-        """
-        N, P, _ = x.shape
-        
+        """        
         # Step 1: Positional encoding (same shape as input)
-        x = self.positional_encoding(x)  # (N, P, 3)
+        x = self.positional_encoding(x)  # (B, N, P, 3)
         
         # Step 2: Linear projection to d_model
-        features = self.input_projection(x)  # (N, P, d_model)
+        features = self.input_projection(x)  # (B, N, P, d_model)
         
         # Step 3: Attention layers
         for attention_layer in self.attention_layers:
@@ -101,15 +99,15 @@ class TracksTo4D(nn.Module):
         
         # Step 4: Output projections
         # Point-level features (aggregated over frames)
-        point_features = einops.reduce(features, 'n p d -> p d', 'mean')  # Reduce over frames
-        bases = self.weight_bases(point_features)  # (P, K, 3)
-        gamma = self.weight_gamma(point_features)  # (P,)
+        point_features = einops.reduce(features, 'b n p d -> b p d', 'mean')  # Reduce over frames
+        bases = self.weight_bases(point_features)  # (B, P, K, 3)
+        gamma = self.weight_gamma(point_features)  # (B, P,)
         
         # Frame-level features (aggregated over points)
-        frame_features = einops.reduce(features, 'n p d -> d n', 'mean')  # Reduce over points and rearrange to (d_model, N)
+        frame_features = einops.reduce(features, 'b n p d -> b d n', 'mean')  # Reduce over points and rearrange to (d_model, N)
         # Apply 1D convolution for camera poses and coefficients
-        camera_poses = self.conv_camera_poses(frame_features) # (N, 6)
-        coefficients = self.conv_coefficients(frame_features) # (N, K-1)
+        camera_poses = self.conv_camera_poses(frame_features) # (B, N, 6)
+        coefficients = self.conv_coefficients(frame_features) # (B, N, K-1)
         
         return TracksTo4DOutputs(
             bases=bases,

@@ -10,3 +10,6 @@ def pad_val_after(x: torch.Tensor, dim: int = -1, val: float = 1.0):
             torch.tensor(val).broadcast_to(along_dim(shp=x.shape, dim=dim))
         ], 
         dim=dim)
+
+def axis_of(pattern: str, axis: str):
+    return {axis: dim for dim, axis in enumerate(pattern.split(' '))}[axis]

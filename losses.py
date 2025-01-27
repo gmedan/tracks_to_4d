@@ -35,41 +35,41 @@ class TracksTo4DCosts:
 
 def calculate_costs(predictions: TracksTo4DOutputs, 
                     point2d_measured_with_visibility: torch.Tensor) -> TracksTo4DCosts:
-    visible = einops.rearrange(point2d_measured_with_visibility[...,-1], 'n p -> n p 1')
+    visible = einops.rearrange(point2d_measured_with_visibility[...,-1], 'b n p -> b n p 1')
     visible_or_nan = visible/visible
-    visible_count = visible.sum()
+    visible_count = einops.reduce(visible, 'b n p 1 -> b 1 1 1', 'sum')
 
-    pts3d = predictions.calculate_points() # (N, P, 3)
-    pts3d_in_cams = predictions.points_3d_in_cameras_coords(points_3d=pts3d) # (N, P, 3)
-    pts2d = predictions.reproject_points(points_3d_in_cameras_coords=pts3d_in_cams) # (N, P, 2)
-    
-    first_basis_3d_in_cams = predictions.points_3d_in_cameras_coords(
-        points_3d=einops.rearrange(predictions.bases[:, 0:1, :], 
-                                   'p 1 d -> 1 p d')) # (N, P, 3)
-    first_basis_static_approximation_2d = predictions.reproject_points(points_3d_in_cameras_coords=first_basis_3d_in_cams) # (N, P, 2)
-    
     # Eq. 5
-    reprojection_errors = pts2d - point2d_measured_with_visibility[..., :2] # (N, P, 2)
+    pts3d = predictions.calculate_points() # (B, N, P, 3)
+    pts3d_in_cams = predictions.points_3d_in_cameras_coords(points_3d=pts3d) # (B, N, P, 3)
+    pts2d = predictions.reproject_points(points_3d_in_cameras_coords=pts3d_in_cams) # (B, N, P, 2)
+    reprojection_errors = pts2d - point2d_measured_with_visibility[..., :2] # (B, N, P, 2)
     reprojection_errors = reprojection_errors * visible
-    reprojection_loss = ((reprojection_errors**2).sum() / visible_count)**.5 
+    reprojection_loss = reprojection_errors.norm(dim=-1).mean()
 
     # Eq. 8    
+    first_basis_3d_in_cams = predictions.points_3d_in_cameras_coords(
+        points_3d=einops.rearrange(predictions.bases[:, :, 0:1, :], 
+                                   'b p 1 d -> b 1 p d')) # (B, N, P, 3)
+    first_basis_static_approximation_2d = predictions.reproject_points(points_3d_in_cameras_coords=first_basis_3d_in_cams) # (N, P, 2)
     first_basis_reprojection_errors = first_basis_static_approximation_2d - \
-                                      point2d_measured_with_visibility[..., :2] # (N, P, 2)
-    gamma = einops.rearrange(predictions.gamma, 'p -> 1 p 1').abs() # can't use negative gammas in eq 8
+                                      point2d_measured_with_visibility[..., :2] # (B, N, P, 2)
+    first_basis_reprojection_errors = einops.reduce(first_basis_reprojection_errors**2, 
+                                                    'b n p d -> b n p 1', 'sum')
+    gamma = einops.rearrange(predictions.gamma, 'b p -> b 1 p 1').abs() # can't use negative gammas in eq 8
     gamma_inverse = gamma ** -1
-    static_cost = torch.log(gamma + gamma**-1 * first_basis_reprojection_errors**2) * visible
-    static_loss = (static_cost.sum() / visible_count)**.5 
+    static_cost = torch.log(gamma + gamma**-1 * first_basis_reprojection_errors) * visible
+    static_loss = (einops.reduce(static_cost, 'b n p 1 -> b 1 1 1', 'sum') / visible_count).mean()
 
     # Eq. 9
     in_front_cost = -torch.min(torch.tensor(0.0, device=pts3d_in_cams.device), 
                                pts3d_in_cams[..., -1:])
-    in_front_loss = (in_front_cost * visible).sum() / visible_count
+    in_front_loss = (einops.reduce(in_front_cost * visible, 'b n p 1 -> b 1 1 1', 'sum') / visible_count).mean()
  
     # Eq. 10
-    gamma_inverse = gamma_inverse.detach() # detach gamma (1, P, 1)
-    sparse_cost = gamma_inverse * einops.reduce(predictions.bases[:,1:,:].abs(), # exclude static first base
-                                                'p k d -> k p 1', 'mean') # (K-1, P, 1)
+    gamma_inverse = gamma_inverse.detach() # detach gamma (B, 1, P, 1)
+    sparse_cost = gamma_inverse * einops.reduce(predictions.bases[:, :, 1:, :].abs(), # exclude static first base
+                                                'b p k d -> b k p 1', 'mean') # (B, K-1, P, 1)
     sparse_loss = sparse_cost.mean()
 
     return TracksTo4DCosts(
