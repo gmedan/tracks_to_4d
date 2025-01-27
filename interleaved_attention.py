@@ -63,8 +63,6 @@ class InterleavedAttention(nn.Module):
                 'batch frame point hidden_dim -> batch frame point output_dim',
                 weight_shape='hidden_dim output_dim',
                 bias_shape='output_dim',
-                heads=self.num_heads,
-                dim_head=self.head_dim,
                 hidden_dim=hidden_layer_dim,
                 output_dim=output_dim
             )
@@ -90,8 +88,8 @@ class InterleavedAttention(nn.Module):
             attention_scores = jnp.where(mask, attention_scores, float('-inf'))
 
         # Apply softmax over frame_key dimension
-        attention_weights = jax.nn.softmax(attention_scores, 
-                                           axis=axis_of(attention_scores_pattern, 'frame_key'))
+        attention_weights = nn.functional.softmax(attention_scores, 
+                                                  dim=axis_of(attention_scores_pattern, 'frame_key'))
         # attention_weights = nn.Dropout(rate=self.dropout)(
         #     attention_weights, deterministic=not self.training
         # )
@@ -126,8 +124,8 @@ class InterleavedAttention(nn.Module):
             attention_scores = jnp.where(mask, attention_scores, float('-inf'))
 
         # Apply softmax over point_key dimension
-        attention_weights = jax.nn.softmax(attention_scores, 
-                                           axis=axis_of(attention_scores_pattern, 'point_key'))
+        attention_weights = nn.functional.softmax(attention_scores, 
+                                                  dim=axis_of(attention_scores_pattern, 'point_key'))
         # attention_weights = nn.Dropout(rate=self.dropout)(
         #     attention_weights, deterministic=not self.training
         # )

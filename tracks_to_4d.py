@@ -5,7 +5,8 @@ from einops.layers.torch import EinMix as Mix
 from einops.layers.torch import Rearrange, Reduce
 
 from positional_encoding import TemporalPositionalEncoding
-from equivariant_attention import EquivariantAttentionLayer as Attention
+# from equivariant_attention import EquivariantAttentionLayer as Attention
+from interleaved_attention import InterleavedAttention as Attention
 from tracks_data import TracksTo4DOutputs
 
 
