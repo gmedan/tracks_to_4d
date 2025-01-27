@@ -14,13 +14,16 @@ class InterleavedAttention(nn.Module):
     Uses efficient einsum operations with consistent dimension naming throughout.
     """
     def __init__(self, 
+                 input_dim: int = 256,
+                 output_dim: int = 256,
                  num_heads: int = 16,
-                 head_dim: int = 16,
+                 hidden_layer_dim: int = 2048,
                  dropout: float = 0.1):
         super(InterleavedAttention, self).__init__()
-        
+
         self.num_heads = num_heads
-        self.head_dim = head_dim
+        assert input_dim % num_heads == 0
+        self.head_dim = input_dim // num_heads
         self.dropout = dropout
 
         # QKV projection for frame attention
@@ -46,13 +49,25 @@ class InterleavedAttention(nn.Module):
         )
 
         # Output projection
-        self.out_proj = EinMix(
-            'batch frame point heads dim_head -> batch frame point dim',
-            weight_shape='heads dim_head dim',
-            bias_shape='dim',
-            heads=self.num_heads,
-            dim_head=self.head_dim,
-            dim=self.num_heads * self.head_dim
+        self.fully_connected = nn.Sequential(
+            EinMix(
+                'batch frame point heads dim_head -> batch frame point hidden_dim',
+                weight_shape='heads dim_head hidden_dim',
+                bias_shape='hidden_dim',
+                heads=self.num_heads,
+                dim_head=self.head_dim,
+                hidden_dim=hidden_layer_dim
+            ),
+            nn.ReLU(),
+            EinMix(
+                'batch frame point hidden_dim -> batch frame point output_dim',
+                weight_shape='hidden_dim output_dim',
+                bias_shape='output_dim',
+                heads=self.num_heads,
+                dim_head=self.head_dim,
+                hidden_dim=hidden_layer_dim,
+                output_dim=output_dim
+            )
         )
 
     def frame_attention(self, x: torch.Tensor, mask: torch.Tensor = None) -> torch.Tensor:
@@ -149,7 +164,7 @@ class InterleavedAttention(nn.Module):
         point_out = self.point_attention(frame_out, point_mask)
 
         # Final projection
-        output = self.out_proj(point_out)
+        output = self.fully_connected(point_out)
         return output
 
 # Example usage demonstrating the dimension flow

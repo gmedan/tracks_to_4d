@@ -5,7 +5,7 @@ from einops.layers.torch import EinMix as Mix
 from einops.layers.torch import Rearrange, Reduce
 
 from positional_encoding import TemporalPositionalEncoding
-from equivariant_attention import EquivariantAttentionLayer
+from equivariant_attention import EquivariantAttentionLayer as Attention
 from tracks_data import TracksTo4DOutputs
 
 
@@ -37,9 +37,9 @@ class TracksTo4D(nn.Module):
         
         # Attention layers
         self.attention_layers = nn.ModuleList([
-            EquivariantAttentionLayer(input_dim=d_model, 
-                                      output_dim=d_model, 
-                                      num_heads=num_heads) 
+            Attention(input_dim=d_model, 
+                      output_dim=d_model, 
+                      num_heads=num_heads) 
             for _ in range(num_layers)
         ])
         
