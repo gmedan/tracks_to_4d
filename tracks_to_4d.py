@@ -5,8 +5,8 @@ from einops.layers.torch import EinMix as Mix
 from einops.layers.torch import Rearrange, Reduce
 
 from positional_encoding import TemporalPositionalEncoding
-# from equivariant_attention import EquivariantAttentionLayer as Attention
-from interleaved_attention import InterleavedAttention as Attention
+from equivariant_attention import EquivariantAttentionLayer as Attention
+# from interleaved_attention import InterleavedAttention as Attention
 from tracks_data import TracksTo4DOutputs
 
 
@@ -113,6 +113,6 @@ class TracksTo4D(nn.Module):
         return TracksTo4DOutputs(
             bases=bases,
             gamma=gamma,
-            camera_poses=camera_poses,
+            cam_from_world_logmap=camera_poses,
             coefficients=coefficients
         )

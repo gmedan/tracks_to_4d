@@ -34,7 +34,11 @@ class TracksTo4DCosts:
 
 
 def calculate_costs(predictions: TracksTo4DOutputs, 
-                    point2d_measured_with_visibility: torch.Tensor) -> TracksTo4DCosts:
+                    point2d_measured_with_visibility: torch.Tensor,
+                    intrinsics: torch.Tensor = None) -> TracksTo4DCosts:
+    if intrinsics is None:
+            intrinsics = torch.eye(3, dtype=point2d_measured_with_visibility.dtype, device=point2d_measured_with_visibility.device)
+        
     visible = einops.rearrange(point2d_measured_with_visibility[...,-1], 'b n p -> b n p 1')
     visible_or_nan = visible/visible
     visible_count = einops.reduce(visible, 'b n p 1 -> b 1 1 1', 'sum')
@@ -42,7 +46,8 @@ def calculate_costs(predictions: TracksTo4DOutputs,
     # Eq. 5
     pts3d = predictions.calculate_points() # (B, N, P, 3)
     pts3d_in_cams = predictions.points_3d_in_cameras_coords(points_3d=pts3d) # (B, N, P, 3)
-    pts2d = predictions.reproject_points(points_3d_in_cameras_coords=pts3d_in_cams) # (B, N, P, 2)
+    pts2d = predictions.reproject_points(points_3d_in_cameras_coords=pts3d_in_cams,
+                                         intrinsics=intrinsics) # (B, N, P, 2)
     reprojection_errors = pts2d - point2d_measured_with_visibility[..., :2] # (B, N, P, 2)
     reprojection_errors = reprojection_errors * visible
     reprojection_loss = reprojection_errors.norm(dim=-1).mean()
@@ -51,7 +56,8 @@ def calculate_costs(predictions: TracksTo4DOutputs,
     first_basis_3d_in_cams = predictions.points_3d_in_cameras_coords(
         points_3d=einops.rearrange(predictions.bases[:, :, 0:1, :], 
                                    'b p 1 d -> b 1 p d')) # (B, N, P, 3)
-    first_basis_static_approximation_2d = predictions.reproject_points(points_3d_in_cameras_coords=first_basis_3d_in_cams) # (N, P, 2)
+    first_basis_static_approximation_2d = predictions.reproject_points(points_3d_in_cameras_coords=first_basis_3d_in_cams,
+                                                                       intrinsics=intrinsics) # (N, P, 2)
     first_basis_reprojection_errors = first_basis_static_approximation_2d - \
                                       point2d_measured_with_visibility[..., :2] # (B, N, P, 2)
     first_basis_reprojection_errors = einops.reduce(first_basis_reprojection_errors**2, 

@@ -5,13 +5,13 @@ import pypose as pp
 
 @dataclass
 class ClipWithTracks:
-    points_2d: torch.Tensor # (N, P, 3) [x,y,is_observed]
-    images: torch.Tensor | None = None # (N, 3, H, W)
-    points_3d: torch.Tensor | None = None # (N, P, 3) [x,y,z]
-    world_from_cam: torch.Tensor | None = None # (N, 6)
-    static_mask: torch.Tensor | None = None # (P,)
-    intrinsic_mat: torch.Tensor = field(default_factory=lambda: torch.eye(3)) # (3, 3)
-    times: torch.Tensor | None = None # (N,)
+    points_2d: torch.Tensor # (B, N, P, 3) [x,y,is_observed]
+    images: torch.Tensor | None = None # (B, N, 3, H, W)
+    points_3d: torch.Tensor | None = None # (B, N, P, 3) [x,y,z]
+    world_from_cam_logmap: torch.Tensor | None = None # (B, N, 6)
+    static_mask: torch.Tensor | None = None # (B, P,)
+    intrinsic_mat: torch.Tensor = field(default_factory=lambda: torch.eye(3)[None, ...]) # (B, 3, 3)
+    times: torch.Tensor | None = None # (B, N,)
 
     @property
     def width(self):
@@ -23,11 +23,11 @@ class ClipWithTracks:
     
     @property
     def num_points(self):
-        return self.points_2d.shape[1]
+        return self.points_2d.shape[2]
 
     @property
     def num_frames(self):
-        return self.points_2d.shape[0]
+        return self.points_2d.shape[1]
 
 @dataclass
 class TracksTo4DOutputs:
@@ -36,7 +36,7 @@ class TracksTo4DOutputs:
     """
     bases: torch.Tensor  # Shape: (B, P, K, 3)
     gamma: torch.Tensor  # Shape: (B, P)
-    camera_poses: torch.Tensor  # Shape: (B, N, 6)
+    cam_from_world_logmap: torch.Tensor  # Shape: (B, N, 6)
     coefficients: torch.Tensor  # Shape: (B, N, K-1)
 
     def calculate_points(self) -> torch.Tensor:
@@ -70,15 +70,17 @@ class TracksTo4DOutputs:
 
     @property
     def camera_from_world(self):
-        return pp.se3(einops.rearrange(self.camera_poses, 'b n s -> b n 1 s')).Exp()
+        return pp.se3(einops.rearrange(self.cam_from_world_logmap, 'b n s -> b n 1 s')).Exp()
     
     def points_3d_in_cameras_coords(self, points_3d: torch.Tensor):
         return self.camera_from_world.Act(points_3d)
     
-    def reproject_points(self, points_3d_in_cameras_coords: torch.Tensor):
+    def reproject_points(self, 
+                         points_3d_in_cameras_coords: torch.Tensor,
+                         intrinsics: torch.Tensor):
         reprojected = pp.point2pixel(
             points=points_3d_in_cameras_coords,
-            intrinsics=torch.eye(3, dtype=points_3d_in_cameras_coords.dtype, device=points_3d_in_cameras_coords.device),
+            intrinsics=intrinsics,
         )
 
         return reprojected
