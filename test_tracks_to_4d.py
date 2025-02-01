@@ -1,6 +1,7 @@
 import einops
 import pytest
 import torch
+from tracks_attention import TracksAttention
 from tracks_to_4d import TracksTo4D, TracksTo4DOutputs
 import utils
 from losses import calculate_costs, TracksTo4DLossMetaParams
@@ -34,7 +35,8 @@ def test_tracks_to_4d_output_shapes():
     points_3d_in_cameras_coords = outputs.points_3d_in_cameras_coords(points_3d=pts3d)
     assert points_3d_in_cameras_coords.shape == (batch_size, N, P, 3)
 
-    pts2d = outputs.reproject_points(points_3d_in_cameras_coords=points_3d_in_cameras_coords)
+    pts2d = outputs.reproject_points(points_3d_in_cameras_coords=points_3d_in_cameras_coords,
+                                     intrinsics=torch.eye(3))
     assert pts2d.shape == (batch_size, N, P, 2)
 
     costs = calculate_costs(predictions=outputs,
@@ -78,6 +80,26 @@ def test_calc_losses_correctness():
                             intrinsics=data.intrinsic_mat)
     
     assert costs.static_cost[:,:,data.static_mask.squeeze(),:].max().item() < -5
+
+
+def test_tracks_attention_output_shape():
+    batch_size = 2
+    n_frame = 8
+    n_point = 100
+    input_dim = 256
+    output_dim = 256
+
+    model = TracksAttention(input_dim=input_dim, 
+                            output_dim=output_dim, 
+                            num_heads=16, 
+                            hidden_layer_dim=2048, 
+                            dropout=0.1)
+    input_tensor = torch.randn(batch_size, n_frame, n_point, input_dim, 
+                               requires_grad=False)
+    model.eval()
+    output_tensor = model(input_tensor)
+    
+    assert output_tensor.shape == (batch_size, n_frame, n_point, output_dim)
 
 
 if __name__ == "__main__":

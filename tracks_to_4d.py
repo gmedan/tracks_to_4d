@@ -5,8 +5,9 @@ from einops.layers.torch import EinMix as Mix
 from einops.layers.torch import Rearrange, Reduce
 
 from positional_encoding import TemporalPositionalEncoding
-from equivariant_attention import EquivariantAttentionLayer as Attention
+# from equivariant_attention import EquivariantAttentionLayer as Attention
 # from interleaved_attention import InterleavedAttention as Attention
+from tracks_attention import TracksAttention as Attention
 from tracks_data import TracksTo4DOutputs
 
 
@@ -59,11 +60,12 @@ class TracksTo4D(nn.Module):
                 in_channels=d_model, 
                 out_channels=6, 
                 kernel_size=kernel_size, 
-                padding='same', 
+                padding='same',
                 padding_mode='replicate'
             ),  # Maps (B, d_model, N) -> (B, 6, N)
             Rearrange('b six n -> b n six')
         )
+        
         self.conv_coefficients = nn.Sequential(
             nn.Conv1d(
                 in_channels=d_model, 
