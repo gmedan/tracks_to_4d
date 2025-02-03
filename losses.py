@@ -62,7 +62,7 @@ def calculate_costs(predictions: TracksTo4DOutputs,
                                       point2d_measured_with_visibility[..., :2] # (B, N, P, 2)
     first_basis_reprojection_errors = einops.reduce(first_basis_reprojection_errors**2, 
                                                     'b n p d -> b n p 1', 'sum')
-    gamma = einops.rearrange(predictions.gamma, 'b p -> b 1 p 1').abs() # can't use negative gammas in eq 8
+    gamma = einops.rearrange(predictions.gamma, 'b p -> b 1 p 1')
     gamma_inverse = gamma ** -1
     static_cost = torch.log(gamma + gamma**-1 * first_basis_reprojection_errors) * visible
     static_loss = (einops.reduce(static_cost, 'b n p 1 -> b 1 1 1', 'sum') / visible_count).mean()

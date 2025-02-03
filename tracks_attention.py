@@ -21,11 +21,11 @@ class TracksAttention(nn.Module):
         self.head_dim = input_dim // num_heads
         self.dropout = dropout
 
-        self.multihead_attn_frames = nn.MultiheadAttention(embed_dim=output_dim, 
+        self.multihead_attn_frames = nn.MultiheadAttention(embed_dim=input_dim, 
                                                            num_heads=num_heads, 
                                                            dropout=dropout, 
                                                            batch_first=True)
-        self.multihead_attn_points = nn.MultiheadAttention(embed_dim=output_dim, 
+        self.multihead_attn_points = nn.MultiheadAttention(embed_dim=input_dim, 
                                                            num_heads=num_heads, 
                                                            dropout=dropout, 
                                                            batch_first=True)

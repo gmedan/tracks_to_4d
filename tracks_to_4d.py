@@ -65,7 +65,7 @@ class TracksTo4D(nn.Module):
             ),  # Maps (B, d_model, N) -> (B, 6, N)
             Rearrange('b six n -> b n six')
         )
-        
+
         self.conv_coefficients = nn.Sequential(
             nn.Conv1d(
                 in_channels=d_model, 
@@ -105,6 +105,7 @@ class TracksTo4D(nn.Module):
         point_features = einops.reduce(features, 'b n p d -> b p d', 'mean')  # Reduce over frames
         bases = self.weight_bases(point_features)  # (B, P, K, 3)
         gamma = self.weight_gamma(point_features)  # (B, P,)
+        gamma = nn.functional.elu(gamma)+1+0.00001 # Ensure gamma is positive
         
         # Frame-level features (aggregated over points)
         frame_features = einops.reduce(features, 'b n p d -> b d n', 'mean')  # Reduce over points and rearrange to (d_model, N)
