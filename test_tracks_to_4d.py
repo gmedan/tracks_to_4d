@@ -1,3 +1,4 @@
+import itertools
 import einops
 import pytest
 import torch
@@ -121,16 +122,27 @@ def coordinate_positional_encoding_reference_impl(x: torch.Tensor, positional_di
     x = einops.rearrange(x, 'b p d n -> b n p d')
     return x
 
+# permute the possible ways to collapse the dimensions of positional encoding
+@pytest.fixture(params=itertools.permutations(['d', 'pos', 'sincos']),
+                ids=lambda n: ' '.join(n))
+def rearrange_string(request):
+    return ' '.join(request.param)
 
-def test_coordinate_positional_encoding():
+@pytest.fixture
+def correct_rearrange_string(request):
+    return 'pos sincos d'
+
+def test_coordinate_positional_encoding(rearrange_string: str, 
+                                        correct_rearrange_string:str):
     batch_size = 2
     num_frames = 8
     num_points = 100
     positional_dim = 12
 
+    CoordinatePositionalEncoding.REARRANGE_ORDER = rearrange_string
     model = CoordinatePositionalEncoding(positional_dim=positional_dim)
+
     input_tensor = torch.randn(batch_size, num_frames, num_points, 3)
-    
     output_tensor = model(input_tensor)
     
     expected_output_dim = model.output_dim
@@ -138,6 +150,13 @@ def test_coordinate_positional_encoding():
 
     ref_impl_output = coordinate_positional_encoding_reference_impl(input_tensor, positional_dim=positional_dim)
     assert ref_impl_output.shape == output_tensor.shape
+
+    # compare the output of the model with the reference implementation
+    # (works with the correct rearrange string only)
+    if rearrange_string == correct_rearrange_string:
+        torch.testing.assert_close(output_tensor, 
+                                   ref_impl_output, 
+                                   rtol=1e-5, atol=1e-5)
 
 if __name__ == "__main__":
     pytest.main()
