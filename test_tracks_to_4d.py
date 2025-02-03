@@ -2,6 +2,7 @@ import einops
 import pytest
 import torch
 from tracks_attention import TracksAttention
+from positional_encoding import CoordinatePositionalEncoding
 from tracks_to_4d import TracksTo4D, TracksTo4DOutputs
 import utils
 from losses import calculate_costs, TracksTo4DLossMetaParams
@@ -101,6 +102,42 @@ def test_tracks_attention_output_shape():
     
     assert output_tensor.shape == (batch_size, n_frame, n_point, output_dim)
 
+def coordinate_positional_encoding_reference_impl(x: torch.Tensor, positional_dim: int):
+    # to the ref impl expected shape
+    x = einops.rearrange(x, 'b n p d -> b p d n')
+    # ref impl
+    b = torch.tensor([(2 ** j) * torch.pi for j in range(positional_dim)],requires_grad = False)
+
+    x_original_shape=x.shape
+    x=x.transpose(2,3)
+    x=x.reshape(-1,x.shape[-1])
+    proj = torch.einsum('ij, k -> ijk', x, b)  
+    mapped_coords = torch.cat((torch.sin(proj), torch.cos(proj)), dim=1)  
+    pos = mapped_coords.transpose(2, 1).contiguous().view(mapped_coords.size(0), -1)
+    x=torch.cat((x,pos),dim=1)
+    x=x.view(x_original_shape[0],x_original_shape[1],x_original_shape[3],x.shape[-1]).transpose(2,3)
+    x=torch.cat((x,torch.ones(x.shape[0],x.shape[1],1,x.shape[3])),dim=2)
+    # back to the expected shape
+    x = einops.rearrange(x, 'b p d n -> b n p d')
+    return x
+
+
+def test_coordinate_positional_encoding():
+    batch_size = 2
+    num_frames = 8
+    num_points = 100
+    positional_dim = 12
+
+    model = CoordinatePositionalEncoding(positional_dim=positional_dim)
+    input_tensor = torch.randn(batch_size, num_frames, num_points, 3)
+    
+    output_tensor = model(input_tensor)
+    
+    expected_output_dim = model.output_dim
+    assert output_tensor.shape == (batch_size, num_frames, num_points, expected_output_dim)
+
+    ref_impl_output = coordinate_positional_encoding_reference_impl(input_tensor, positional_dim=positional_dim)
+    assert ref_impl_output.shape == output_tensor.shape
 
 if __name__ == "__main__":
     pytest.main()

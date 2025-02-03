@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
-import einops 
+import einops
+
+import utils 
 
 class TemporalPositionalEncoding(nn.Module):
     """
@@ -45,3 +47,32 @@ class TemporalPositionalEncoding(nn.Module):
         else:
             raise ValueError(f'expected last dim of x to be {self.d_model} or {self.d_model+1}')
         return x + pos_encoding
+    
+
+    
+class CoordinatePositionalEncoding(nn.Module):
+    def __init__(self, positional_dim: int = 12):
+        super(CoordinatePositionalEncoding, self).__init__()
+        self.positional_dim = positional_dim
+        self.pi_times_powers_of_2 = einops.rearrange(
+            torch.tensor([(2 ** j) * torch.pi 
+                          for j in range(positional_dim)],
+                         requires_grad = False),
+                         'pos -> 1 1 1 1 pos')
+        
+    @property
+    def output_dim(self):
+        return 3 * self.positional_dim * 2 + 3 + 1
+        
+    def forward(self, pts_2d_with_visibility: torch.Tensor) -> torch.Tensor:
+        batch, num_frames, num_points, d = pts_2d_with_visibility.shape
+        assert d == 3
+
+        x = einops.rearrange(pts_2d_with_visibility, 'b n p d -> b n p d 1') * \
+                             self.pi_times_powers_of_2
+        x = torch.stack([torch.sin(x), torch.cos(x)], dim=-1)
+        x = einops.rearrange(x, 'b n p d pos sincos -> b n p (d pos sincos)')
+        x = torch.cat([pts_2d_with_visibility, x], dim=-1)
+        x = utils.pad_val_after(x, dim=-1, val=1)
+        assert x.shape[-1] == self.output_dim
+        return x

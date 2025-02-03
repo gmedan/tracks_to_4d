@@ -4,7 +4,7 @@ import einops
 from einops.layers.torch import EinMix as Mix
 from einops.layers.torch import Rearrange, Reduce
 
-from positional_encoding import TemporalPositionalEncoding
+from positional_encoding import CoordinatePositionalEncoding
 # from equivariant_attention import EquivariantAttentionLayer as Attention
 # from interleaved_attention import InterleavedAttention as Attention
 from tracks_attention import TracksAttention as Attention
@@ -22,20 +22,32 @@ class TracksTo4D(nn.Module):
         num_layers (int): Number of alternating attention layers.
         kernel_size (int): Kernel size for temporal convolution.
     """
-    def __init__(self, num_bases=12, d_model=256, num_heads=16, num_layers=3, kernel_size=31):
+    def __init__(self, 
+                 num_bases=12,
+                 d_model=256, 
+                 num_heads=16, 
+                 num_layers=3, 
+                 kernel_size=31,
+                 d_positional_encoding=12,
+                 conv_padding_mode='replicate'):
         super(TracksTo4D, self).__init__()
         
         self.d_model = d_model
         self.num_bases = num_bases
         self.num_layers = num_layers
         
-        # Positional encoding for input tensor (outputs same shape as input)
-        self.positional_encoding = TemporalPositionalEncoding()
+        # Positional encoding for input tensor
+        self.positional_encoding = CoordinatePositionalEncoding(positional_dim=d_positional_encoding)
         
         # Linear layer to project positional encoding to d_model
-        self.input_projection = Mix('B N P d_in -> B N P d_out', 
-                                    weight_shape='d_in d_out', 
-                                    d_in=3, d_out=d_model)
+        self.input_projection = nn.Sequential(
+            nn.LayerNorm(self.positional_encoding.output_dim),
+            Mix('B N P d_in -> B N P d_out', 
+                weight_shape='d_in d_out', 
+                d_in=self.positional_encoding.output_dim, 
+                d_out=d_model),
+            nn.LayerNorm(d_model),
+        )
         
         # Attention layers
         self.attention_layers = nn.ModuleList([
@@ -61,7 +73,7 @@ class TracksTo4D(nn.Module):
                 out_channels=6, 
                 kernel_size=kernel_size, 
                 padding='same',
-                padding_mode='replicate'
+                padding_mode=conv_padding_mode
             ),  # Maps (B, d_model, N) -> (B, 6, N)
             Rearrange('b six n -> b n six')
         )
@@ -72,7 +84,7 @@ class TracksTo4D(nn.Module):
                 out_channels=num_bases - 1, 
                 kernel_size=kernel_size, 
                 padding='same', 
-                padding_mode='replicate'
+                padding_mode=conv_padding_mode
             ),  # Maps (B, d_model, N) -> (B, K-1, N)
             Rearrange('b k n -> b n k')
         )

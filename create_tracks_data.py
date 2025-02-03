@@ -189,8 +189,8 @@ if __name__ == "__main__":
     log_to_rerun(data)
 
     model = TracksTo4D(num_bases=2).double()
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.5)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.5)
     loss_metaparams = TracksTo4DLossMetaParams()
 
     point2d_with_visibility = pad_val_after(data.points_2d, dim=-1, val=1).double()
@@ -198,21 +198,22 @@ if __name__ == "__main__":
     bases_colors = (torch.rand(model.num_bases, 3)*255).int()
     bases_colors = einops.repeat(bases_colors, 
                                  'k d -> (p k) d', p=data.num_points, d=3)
-    pretrain_epochs = 50
+    pretrain_epochs = 0
     target_world_from_cam = pp.se3(data.world_from_cam_logmap[0,0].double()).Exp()
 
     rr.set_time_sequence('time', data.times[0,0].int())
     for epoch in range(3000):
         optimizer.zero_grad()
         pred: TracksTo4DOutputs = model(point2d_with_visibility)
+        # pred.cam_from_world_logmap = (pp.se3(pred.cam_from_world_logmap).Exp() @ pp.se3(pred.cam_from_world_logmap).Exp().Inv() @ target_world_from_cam.Inv().lview(1,1)).Log()
         loss = calculate_pretrain_loss(predictions=pred, 
                                        target_world_from_cam=target_world_from_cam) \
                if epoch < pretrain_epochs else \
                calculate_costs(predictions=pred, 
                                point2d_measured_with_visibility=point2d_with_visibility).calc_loss(loss_weights=loss_metaparams)
         
-        loss.retain_grad()
-        loss.backward(retain_graph=True)
+        # loss.retain_grad()
+        loss.backward(retain_graph=False)
         optimizer.step()
         scheduler.step()
         print(f"Epoch {epoch+1}, Loss: {loss.item()}, LR: {scheduler.get_last_lr()[0]}")
