@@ -58,7 +58,6 @@ class CoordinatePositionalEncoding(nn.Module):
         
         super(CoordinatePositionalEncoding, self).__init__()
         self.positional_dim = positional_dim
-        self._rearrange_str = CoordinatePositionalEncoding.REARRANGE_ORDER # default value adhering to reference implementation
         self.pi_times_powers_of_2 = \
             torch.tensor([(2 ** j) * torch.pi 
                           for j in range(positional_dim)],
@@ -75,7 +74,7 @@ class CoordinatePositionalEncoding(nn.Module):
         x = einops.rearrange(pts_2d_with_visibility, 'b n p d -> b n p d 1') * \
             einops.rearrange(self.pi_times_powers_of_2,  'pos -> 1 1 1 1 pos')
         x = torch.stack([torch.sin(x), torch.cos(x)], dim=-1)
-        x = einops.rearrange(x, f'b n p d pos sincos -> b n p ({self._rearrange_str})')
+        x = einops.rearrange(x, f'b n p d pos sincos -> b n p ({self.REARRANGE_ORDER})')
         x = torch.cat([pts_2d_with_visibility, x], dim=-1)
         x = utils.pad_val_after(x, dim=-1, val=1)
         assert x.shape[-1] == self.output_dim
